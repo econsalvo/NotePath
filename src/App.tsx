@@ -16,6 +16,9 @@ import {
 import './App.css'
 
 const AUTO_SAVE_DELAY_MS = 900
+const MIN_EDITOR_FONT_SIZE = 16
+const MAX_EDITOR_FONT_SIZE = 34
+const DEFAULT_EDITOR_FONT_SIZE = 22
 
 function App() {
   const { isLoading, isAuthenticated } = useConvexAuth()
@@ -30,20 +33,26 @@ function App() {
   const [isDirty, setIsDirty] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [editorFontSize, setEditorFontSize] = useState(DEFAULT_EDITOR_FONT_SIZE)
 
   const editorRef = useRef<HTMLDivElement | null>(null)
   const savePromiseRef = useRef<Promise<boolean> | null>(null)
   const changedWhileSavingRef = useRef(false)
 
+  const orderedNotes = useMemo(() => {
+    if (!notes) return notes
+    return [...notes].sort((a, b) => b.createdAt - a.createdAt)
+  }, [notes])
+
   const selectedNote = useMemo(
-    () => notes?.find((note) => note._id === selectedNoteId) ?? null,
-    [notes, selectedNoteId],
+    () => orderedNotes?.find((note) => note._id === selectedNoteId) ?? null,
+    [orderedNotes, selectedNoteId],
   )
 
   useEffect(() => {
-    if (!notes) return
+    if (!orderedNotes) return
 
-    if (notes.length === 0) {
+    if (orderedNotes.length === 0) {
       setSelectedNoteId(null)
       setDraftTitle('')
       setDraftContent('')
@@ -55,10 +64,13 @@ function App() {
       return
     }
 
-    if (!selectedNoteId || !notes.some((note) => note._id === selectedNoteId)) {
-      setSelectedNoteId(notes[0]._id)
+    if (
+      !selectedNoteId ||
+      !orderedNotes.some((note) => note._id === selectedNoteId)
+    ) {
+      setSelectedNoteId(orderedNotes[0]._id)
     }
-  }, [notes, selectedNoteId])
+  }, [orderedNotes, selectedNoteId])
 
   useEffect(() => {
     if (!selectedNote || isDirty) return
@@ -189,13 +201,6 @@ function App() {
   const handleDeleteNote = useCallback(async (note: Note) => {
     const isSelectedNote = note._id === selectedNoteId
     const hadUnsavedChanges = isSelectedNote && isDirty
-    const shouldDelete = window.confirm(
-      hadUnsavedChanges
-        ? 'Delete this note? Unsaved changes will be lost.'
-        : 'Delete this note?',
-    )
-
-    if (!shouldDelete) return
 
     if (isSelectedNote) {
       setIsDirty(false)
@@ -213,6 +218,8 @@ function App() {
   }, [isDirty, removeNote, selectedNoteId])
 
   const canEdit = Boolean(selectedNoteId)
+  const canDecreaseFont = editorFontSize > MIN_EDITOR_FONT_SIZE
+  const canIncreaseFont = editorFontSize < MAX_EDITOR_FONT_SIZE
 
   return (
     <div className="app-shell">
@@ -222,7 +229,7 @@ function App() {
 
       <SignedIn>
         <NotesSidebar
-          notes={notes}
+          notes={orderedNotes}
           selectedNoteId={selectedNoteId}
           onCreateNote={handleCreate}
           onSelectNote={handleSelectNote}
@@ -235,6 +242,19 @@ function App() {
             isDirty={isDirty}
             isSaving={isSaving}
             saveError={saveError}
+            fontSize={editorFontSize}
+            canDecreaseFont={canDecreaseFont}
+            canIncreaseFont={canIncreaseFont}
+            onDecreaseFont={() => {
+              setEditorFontSize((current) =>
+                Math.max(MIN_EDITOR_FONT_SIZE, current - 1),
+              )
+            }}
+            onIncreaseFont={() => {
+              setEditorFontSize((current) =>
+                Math.min(MAX_EDITOR_FONT_SIZE, current + 1),
+              )
+            }}
             onCommand={executeCommand}
           />
 
@@ -255,6 +275,7 @@ function App() {
                 isDirty={isDirty}
                 saveError={saveError}
                 editorRef={editorRef}
+                editorFontSize={editorFontSize}
                 onTitleChange={(title) => {
                   setDraftTitle(title)
                   markDirty()

@@ -12,6 +12,7 @@ type NoteEditorProps = {
   draftContent: string
   isDirty: boolean
   saveError: string | null
+  editorFontSize: number
   editorRef: RefObject<HTMLDivElement | null>
   onTitleChange: (title: string) => void
   onContentInput: (content: string) => void
@@ -23,6 +24,7 @@ export function NoteEditor({
   draftContent,
   isDirty,
   saveError,
+  editorFontSize,
   editorRef,
   onTitleChange,
   onContentInput,
@@ -50,6 +52,7 @@ export function NoteEditor({
       <div
         ref={editorRef}
         className={`editor-input${isEditorEmpty ? ' is-empty' : ''}`}
+        style={{ fontSize: `${editorFontSize}px` }}
         contentEditable
         suppressContentEditableWarning
         data-placeholder="Start writing..."

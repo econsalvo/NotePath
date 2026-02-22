@@ -56,7 +56,12 @@ export function NotesSidebar({
                 aria-label={`Delete ${displayTitle}`}
                 title="Delete note"
               >
-                Delete
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 7h2v8h-2v-8Zm4 0h2v8h-2v-8ZM7 10h2v8H7v-8Zm-1 10h12l1-12H5l1 12Z"
+                    fill="currentColor"
+                  />
+                </svg>
               </button>
             </div>
           )

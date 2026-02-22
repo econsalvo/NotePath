@@ -5,6 +5,11 @@ type EditorToolbarProps = {
   isDirty: boolean
   isSaving: boolean
   saveError: string | null
+  fontSize: number
+  canDecreaseFont: boolean
+  canIncreaseFont: boolean
+  onDecreaseFont: () => void
+  onIncreaseFont: () => void
   onCommand: (command: string) => void
 }
 
@@ -74,24 +79,55 @@ export function EditorToolbar({
   isDirty,
   isSaving,
   saveError,
+  fontSize,
+  canDecreaseFont,
+  canIncreaseFont,
+  onDecreaseFont,
+  onIncreaseFont,
   onCommand,
 }: EditorToolbarProps) {
   return (
     <header className="toolbar">
-      <div className="toolbar-group">
-        {actions.map((action) => (
+      <div className="toolbar-left">
+        <div className="toolbar-group">
+          {actions.map((action) => (
+            <button
+              key={action.command}
+              type="button"
+              className="toolbar-btn icon-only"
+              title={action.label}
+              aria-label={action.label}
+              onClick={() => onCommand(action.command)}
+              disabled={!canEdit}
+            >
+              {action.icon}
+            </button>
+          ))}
+        </div>
+
+        <div className="font-size-controls" aria-label="Text size controls">
           <button
-            key={action.command}
             type="button"
-            className="toolbar-btn icon-only"
-            title={action.label}
-            aria-label={action.label}
-            onClick={() => onCommand(action.command)}
-            disabled={!canEdit}
+            className="toolbar-btn font-size-btn"
+            onClick={onDecreaseFont}
+            disabled={!canEdit || !canDecreaseFont}
+            aria-label="Decrease text size"
+            title="Decrease text size"
           >
-            {action.icon}
+            A-
           </button>
-        ))}
+          <span className="font-size-value">{fontSize}px</span>
+          <button
+            type="button"
+            className="toolbar-btn font-size-btn"
+            onClick={onIncreaseFont}
+            disabled={!canEdit || !canIncreaseFont}
+            aria-label="Increase text size"
+            title="Increase text size"
+          >
+            A+
+          </button>
+        </div>
       </div>
 
       <p className={`autosave-status${saveError ? ' error' : ''}`}>
