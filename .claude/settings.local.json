@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(dir:*)",
+      "Skill(convex)",
+      "Skill(convex:*)"
+    ]
+  }
+}

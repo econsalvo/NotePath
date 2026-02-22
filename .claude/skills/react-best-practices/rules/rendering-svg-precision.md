@@ -1,0 +1,33 @@
+---
+title: Optimize SVG Precision
+impact: MEDIUM
+impactDescription: Reduces SVG file size
+tags: rendering, svg, optimization, precision
+---
+
+## Optimize SVG Precision
+
+Reduce SVG coordinate precision to decrease file size. The optimal precision depends on the viewBox size.
+
+**Incorrect (excessive precision):**
+
+```svg
+<path d="M 10.293847 20.847362 L 30.938472 40.192837" />
+```
+
+**Correct (1 decimal place):**
+
+```svg
+<path d="M 10.3 20.8 L 30.9 40.2" />
+```
+
+**Automate with SVGO:**
+
+```bash
+npx svgo --precision=1 --multipass icon.svg
+```
+
+**When to apply:**
+- All SVG icons
+- Illustrations with many path coordinates
+- Any SVG that needs optimization
