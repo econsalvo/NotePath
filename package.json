@@ -5,11 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "convex:dev": "convex dev",
+    "convex:codegen": "convex codegen",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.1",
+    "convex": "^1.32.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

@@ -1,73 +1,77 @@
-# React + TypeScript + Vite
+# NotePath
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Clerk + React (Vite) setup
 
-Currently, two official plugins are available:
+Official quickstart: https://clerk.com/docs/react/getting-started/quickstart
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. Install dependencies:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm install @clerk/clerk-react@latest
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+2. Add environment variables in `.env.local` (preferred for local secrets):
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+VITE_CLERK_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
+VITE_CONVEX_URL=YOUR_CONVEX_URL
 ```
+
+3. Wrap the app in `ClerkProvider` in `src/main.tsx`:
+
+```tsx
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { ClerkProvider, useAuth } from '@clerk/clerk-react'
+import { ConvexReactClient } from 'convex/react'
+import { ConvexProviderWithClerk } from 'convex/react-clerk'
+import './index.css'
+import App from './App.tsx'
+
+const convexUrl = import.meta.env.VITE_CONVEX_URL
+const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+
+if (!convexUrl) throw new Error('Missing VITE_CONVEX_URL in environment')
+if (!clerkPublishableKey) throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in environment')
+
+const convex = new ConvexReactClient(convexUrl)
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <ClerkProvider publishableKey={clerkPublishableKey} afterSignOutUrl="/">
+      <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+        <App />
+      </ConvexProviderWithClerk>
+    </ClerkProvider>
+  </StrictMode>,
+)
+```
+
+4. Use Clerk components in `src/App.tsx`:
+
+```tsx
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from '@clerk/clerk-react'
+
+export default function App() {
+  return (
+    <header>
+      <SignedOut>
+        <SignInButton />
+        <SignUpButton />
+      </SignedOut>
+      <SignedIn>
+        <UserButton />
+      </SignedIn>
+    </header>
+  )
+}
+```
+
+`frontendApi` and older variable names like `REACT_APP_CLERK_FRONTEND_API` are not used in this Vite setup.
