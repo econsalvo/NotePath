@@ -18,10 +18,26 @@ if (!clerkPublishableKey) {
 }
 
 const convex = new ConvexReactClient(convexUrl)
+const clerkAppearance = {
+  variables: {
+    colorBackground: '#0b1424',
+    colorText: '#dce7f8',
+    colorPrimary: '#3f6fa8',
+    colorInputBackground: '#101b30',
+    colorInputText: '#dce7f8',
+    colorNeutral: '#8ea6c9',
+    colorDanger: '#f29999',
+    borderRadius: '10px',
+  },
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ClerkProvider publishableKey={clerkPublishableKey} afterSignOutUrl="/">
+    <ClerkProvider
+      publishableKey={clerkPublishableKey}
+      afterSignOutUrl="/"
+      appearance={clerkAppearance}
+    >
       <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
         <App />
       </ConvexProviderWithClerk>
