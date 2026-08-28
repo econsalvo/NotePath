@@ -1,39 +1,37 @@
-import type { RefObject } from 'react'
+import type { Editor } from '@tiptap/react'
 import type { Note } from '../types/note'
-import {
-  formatCreatedDate,
-  formatRelativeTime,
-  hasMeaningfulContent,
-} from '../utils/noteFormatting'
+import type { RichTextDocument } from '../domain/noteDocument'
+import { formatCreatedDate, formatRelativeTime } from '../utils/noteFormatting'
+import { RichTextEditor } from './RichTextEditor'
 
 type NoteEditorProps = {
   note: Note
   draftTitle: string
-  draftContent: string
+  draftDocument: RichTextDocument
   isDirty: boolean
   saveError: string | null
-  editorFontSize: number
-  editorRef: RefObject<HTMLDivElement | null>
   onTitleChange: (title: string) => void
-  onContentInput: (content: string) => void
+  onDocumentChange: (document: RichTextDocument) => void
+  onEditorReady: (editor: Editor | null) => void
 }
 
 export function NoteEditor({
   note,
   draftTitle,
-  draftContent,
+  draftDocument,
   isDirty,
   saveError,
-  editorFontSize,
-  editorRef,
   onTitleChange,
-  onContentInput,
+  onDocumentChange,
+  onEditorReady,
 }: NoteEditorProps) {
-  const isEditorEmpty = !hasMeaningfulContent(draftContent)
-
   return (
     <>
+      <label className="sr-only" htmlFor="note-title">
+        Note title
+      </label>
       <input
+        id="note-title"
         className="title-input"
         value={draftTitle}
         onChange={(event) => onTitleChange(event.target.value)}
@@ -49,19 +47,17 @@ export function NoteEditor({
 
       <div className="divider" />
 
-      <div
-        ref={editorRef}
-        className={`editor-input${isEditorEmpty ? ' is-empty' : ''}`}
-        style={{ fontSize: `${editorFontSize}px` }}
-        contentEditable
-        suppressContentEditableWarning
-        data-placeholder="Start writing..."
-        onInput={(event) => {
-          onContentInput(event.currentTarget.innerHTML)
-        }}
+      <RichTextEditor
+        document={draftDocument}
+        onChange={onDocumentChange}
+        onEditorReady={onEditorReady}
       />
 
-      {saveError && <p className="save-error">{saveError}</p>}
+      {saveError && (
+        <p className="save-error" role="alert">
+          {saveError}
+        </p>
+      )}
     </>
   )
 }

@@ -1,7 +1,8 @@
 import { UserButton } from '@clerk/clerk-react'
 import type { Id } from '../../convex/_generated/dataModel'
+import { decodeStoredDocument, documentToPlainText } from '../domain/noteDocument'
 import type { Note } from '../types/note'
-import { formatRelativeTime, getEditorContent, toPlainText } from '../utils/noteFormatting'
+import { formatRelativeTime } from '../utils/noteFormatting'
 
 type NotesSidebarProps = {
   notes: Note[] | undefined
@@ -9,6 +10,14 @@ type NotesSidebarProps = {
   onCreateNote: () => void
   onSelectNote: (note: Note) => void
   onDeleteNote: (note: Note) => Promise<void>
+}
+
+function notePreview(content: string) {
+  try {
+    return documentToPlainText(decodeStoredDocument(content).document) || 'Empty note'
+  } catch {
+    return 'Unsupported note format'
+  }
 }
 
 export function NotesSidebar({
@@ -30,7 +39,7 @@ export function NotesSidebar({
           <p className="notes-hint">No notes yet. Create your first note.</p>
         )}
         {notes?.map((note) => {
-          const preview = toPlainText(getEditorContent(note.content)) || 'Empty note'
+          const preview = notePreview(note.content)
           const isActive = note._id === selectedNoteId
           const displayTitle = note.title || 'Untitled Note'
           return (

@@ -1,24 +1,27 @@
 import { SignedIn, SignedOut } from '@clerk/clerk-react'
+import type { Editor } from '@tiptap/react'
 import { useConvexAuth, useMutation, useQuery } from 'convex/react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../convex/_generated/api'
 import type { Id } from '../convex/_generated/dataModel'
 import { AuthScreen } from './components/AuthScreen'
-import { NoteEditor } from './components/NoteEditor'
 import { EditorToolbar } from './components/EditorToolbar'
+import { NoteEditor } from './components/NoteEditor'
 import { NotesSidebar } from './components/NotesSidebar'
-import type { Note } from './types/note'
 import {
-  getEditorContent,
-  normalizeContentForSave,
-  normalizeTitle,
-} from './utils/noteFormatting'
+  createEmptyDocument,
+  decodeStoredDocument,
+  encodeStoredDocument,
+  InvalidNoteDocumentError,
+} from './domain/noteDocument'
+import { useNoteDraftAutosave } from './hooks/useNoteDraftAutosave'
+import type { Note } from './types/note'
+import { normalizeTitle } from './utils/noteFormatting'
 import './App.css'
 
-const AUTO_SAVE_DELAY_MS = 900
-const MIN_EDITOR_FONT_SIZE = 16
-const MAX_EDITOR_FONT_SIZE = 34
-const DEFAULT_EDITOR_FONT_SIZE = 22
+function errorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
+}
 
 function App() {
   const { isLoading, isAuthenticated } = useConvexAuth()
@@ -28,16 +31,41 @@ function App() {
   const removeNote = useMutation(api.notes.remove)
 
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'notes'> | null>(null)
-  const [draftTitle, setDraftTitle] = useState('')
-  const [draftContent, setDraftContent] = useState('')
-  const [isDirty, setIsDirty] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [editorFontSize, setEditorFontSize] = useState(DEFAULT_EDITOR_FONT_SIZE)
+  const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
+  const [operationError, setOperationError] = useState<string | null>(null)
+  const [documentError, setDocumentError] = useState<string | null>(null)
 
-  const editorRef = useRef<HTMLDivElement | null>(null)
-  const savePromiseRef = useRef<Promise<boolean> | null>(null)
-  const changedWhileSavingRef = useRef(false)
+  const persistDraft = useCallback(
+    async ({
+      noteId,
+      title,
+      content,
+    }: {
+      noteId: Id<'notes'>
+      title: string
+      content: string
+    }) => {
+      await updateNote({
+        id: noteId,
+        title: normalizeTitle(title),
+        content,
+      })
+    },
+    [updateNote],
+  )
+
+  const autosave = useNoteDraftAutosave<Id<'notes'>>({ save: persistDraft })
+  const {
+    draft,
+    error: autosaveError,
+    isDirty,
+    isSaving,
+    loadDraft,
+    discardDraft,
+    updateTitle,
+    updateDocument,
+    flushDraft,
+  } = autosave
 
   const orderedNotes = useMemo(() => {
     if (!notes) return notes
@@ -50,176 +78,152 @@ function App() {
   )
 
   useEffect(() => {
+    if (isAuthenticated) return
+    // Convex auth is an external source; clear account-scoped draft state when it changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedNoteId(null)
+    setActiveEditor(null)
+    setOperationError(null)
+    setDocumentError(null)
+    discardDraft()
+  }, [discardDraft, isAuthenticated])
+
+  useEffect(() => {
     if (!orderedNotes) return
 
     if (orderedNotes.length === 0) {
+      // The remote collection is authoritative for which note can be selected.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedNoteId(null)
-      setDraftTitle('')
-      setDraftContent('')
-      setIsDirty(false)
-      setSaveError(null)
-      if (editorRef.current) {
-        editorRef.current.innerHTML = ''
-      }
+      setActiveEditor(null)
+      setDocumentError(null)
+      discardDraft()
       return
     }
 
-    if (
-      !selectedNoteId ||
-      !orderedNotes.some((note) => note._id === selectedNoteId)
-    ) {
+    if (!selectedNoteId) {
+      setSelectedNoteId(orderedNotes[0]._id)
+      return
+    }
+
+    const selectedStillExists = orderedNotes.some(
+      (note) => note._id === selectedNoteId,
+    )
+    const selectedIsPendingCreate = draft?.noteId === selectedNoteId
+    if (!selectedStillExists && !selectedIsPendingCreate) {
       setSelectedNoteId(orderedNotes[0]._id)
     }
-  }, [orderedNotes, selectedNoteId])
+  }, [discardDraft, draft?.noteId, orderedNotes, selectedNoteId])
 
   useEffect(() => {
-    if (!selectedNote || isDirty) return
+    if (!selectedNote || draft?.noteId === selectedNote._id) return
 
-    const contentForEditor = getEditorContent(selectedNote.content)
-
-    setDraftTitle(selectedNote.title)
-    setDraftContent(contentForEditor)
-
-    if (editorRef.current && editorRef.current.innerHTML !== contentForEditor) {
-      editorRef.current.innerHTML = contentForEditor
+    // Load the selected remote note into the isolated local editor draft.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveEditor(null)
+    setOperationError(null)
+    try {
+      const decoded = decodeStoredDocument(selectedNote.content)
+      setDocumentError(null)
+      loadDraft(
+        {
+          noteId: selectedNote._id,
+          title: selectedNote.title,
+          document: decoded.document,
+        },
+        { needsMigration: decoded.needsMigration },
+      )
+    } catch (error) {
+      discardDraft()
+      setDocumentError(
+        error instanceof InvalidNoteDocumentError
+          ? 'This note uses an invalid or newer document format and was not opened or overwritten.'
+          : errorMessage(error, 'Could not open this note.'),
+      )
     }
-  }, [selectedNote, isDirty])
-
-  const markDirty = useCallback(() => {
-    setIsDirty(true)
-    setSaveError(null)
-    if (savePromiseRef.current) {
-      changedWhileSavingRef.current = true
-    }
-  }, [])
-
-  const saveDraft = useCallback(async () => {
-    if (!selectedNoteId || !isDirty) return true
-    if (savePromiseRef.current) {
-      return await savePromiseRef.current
-    }
-
-    const noteId = selectedNoteId
-    const normalizedTitle = normalizeTitle(draftTitle)
-    const normalizedContent = normalizeContentForSave(draftContent)
-
-    const saveOperation = (async () => {
-      changedWhileSavingRef.current = false
-      setIsSaving(true)
-      setSaveError(null)
-
-      try {
-        await updateNote({
-          id: noteId,
-          title: normalizedTitle,
-          content: normalizedContent,
-        })
-
-        if (!changedWhileSavingRef.current) {
-          setIsDirty(false)
-          if (!draftTitle.trim()) {
-            setDraftTitle(normalizedTitle)
-          }
-        }
-
-        return true
-      } catch (error) {
-        setSaveError(error instanceof Error ? error.message : 'Could not save note')
-        return false
-      } finally {
-        setIsSaving(false)
-        savePromiseRef.current = null
-      }
-    })()
-
-    savePromiseRef.current = saveOperation
-    return await saveOperation
-  }, [draftContent, draftTitle, isDirty, selectedNoteId, updateNote])
-
-  useEffect(() => {
-    if (!selectedNoteId || !isDirty) return
-
-    const timerId = window.setTimeout(() => {
-      void saveDraft()
-    }, AUTO_SAVE_DELAY_MS)
-
-    return () => window.clearTimeout(timerId)
-  }, [draftContent, draftTitle, isDirty, saveDraft, selectedNoteId])
+  }, [discardDraft, draft?.noteId, loadDraft, selectedNote])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault()
-        void saveDraft()
+        void flushDraft()
       }
     }
-
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [saveDraft])
+  }, [flushDraft])
 
-  const executeCommand = useCallback(
-    (command: string) => {
-      document.execCommand(command, false)
-      editorRef.current?.focus()
-      const nextContent = editorRef.current?.innerHTML ?? ''
-      setDraftContent(nextContent)
-      markDirty()
-    },
-    [markDirty],
-  )
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return
+      event.preventDefault()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [isDirty])
 
   const handleCreate = useCallback(async () => {
-    const didSave = await saveDraft()
+    const didSave = await flushDraft()
     if (!didSave) return
 
-    const newId = await createNote({
-      title: 'Untitled Note',
-      content: '<p></p>',
-    })
-
-    setSelectedNoteId(newId)
-    setDraftTitle('Untitled Note')
-    setDraftContent('')
-    setIsDirty(false)
-    setSaveError(null)
-    if (editorRef.current) {
-      editorRef.current.innerHTML = ''
-    }
-  }, [createNote, saveDraft])
-
-  const handleSelectNote = useCallback(async (note: Note) => {
-    if (note._id === selectedNoteId) return
-    const didSave = await saveDraft()
-    if (!didSave) return
-
-    setSelectedNoteId(note._id)
-    setIsDirty(false)
-    setSaveError(null)
-  }, [saveDraft, selectedNoteId])
-
-  const handleDeleteNote = useCallback(async (note: Note) => {
-    const isSelectedNote = note._id === selectedNoteId
-    const hadUnsavedChanges = isSelectedNote && isDirty
-
-    if (isSelectedNote) {
-      setIsDirty(false)
-      setSaveError(null)
-    }
-
+    setOperationError(null)
+    setDocumentError(null)
     try {
-      await removeNote({ id: note._id })
+      const document = createEmptyDocument()
+      const newId = await createNote({
+        title: 'Untitled Note',
+        content: encodeStoredDocument(document),
+      })
+      setActiveEditor(null)
+      setSelectedNoteId(newId)
+      loadDraft({
+        noteId: newId,
+        title: 'Untitled Note',
+        document,
+      })
     } catch (error) {
-      if (isSelectedNote && hadUnsavedChanges) {
-        setIsDirty(true)
-      }
-      setSaveError(error instanceof Error ? error.message : 'Could not delete note')
+      setOperationError(errorMessage(error, 'Could not create note'))
     }
-  }, [isDirty, removeNote, selectedNoteId])
+  }, [createNote, flushDraft, loadDraft])
 
-  const canEdit = Boolean(selectedNoteId)
-  const canDecreaseFont = editorFontSize > MIN_EDITOR_FONT_SIZE
-  const canIncreaseFont = editorFontSize < MAX_EDITOR_FONT_SIZE
+  const handleSelectNote = useCallback(
+    async (note: Note) => {
+      if (note._id === selectedNoteId) return
+      const didSave = await flushDraft()
+      if (!didSave) return
+
+      setActiveEditor(null)
+      setOperationError(null)
+      setDocumentError(null)
+      setSelectedNoteId(note._id)
+    },
+    [flushDraft, selectedNoteId],
+  )
+
+  const handleDeleteNote = useCallback(
+    async (note: Note) => {
+      const isSelectedNote = note._id === selectedNoteId
+      setOperationError(null)
+
+      try {
+        await removeNote({ id: note._id })
+        if (isSelectedNote) {
+          setActiveEditor(null)
+          setSelectedNoteId(null)
+          setDocumentError(null)
+          discardDraft()
+        }
+      } catch (error) {
+        setOperationError(errorMessage(error, 'Could not delete note'))
+      }
+    },
+    [discardDraft, removeNote, selectedNoteId],
+  )
+
+  const draftMatchesSelection =
+    Boolean(selectedNote) && draft?.noteId === selectedNote?._id
+  const editorError = autosaveError ?? operationError
 
   return (
     <div className="app-shell">
@@ -238,24 +242,11 @@ function App() {
 
         <main className="editor-pane">
           <EditorToolbar
-            canEdit={canEdit}
+            editor={activeEditor}
+            canEdit={draftMatchesSelection && !documentError}
             isDirty={isDirty}
             isSaving={isSaving}
-            saveError={saveError}
-            fontSize={editorFontSize}
-            canDecreaseFont={canDecreaseFont}
-            canIncreaseFont={canIncreaseFont}
-            onDecreaseFont={() => {
-              setEditorFontSize((current) =>
-                Math.max(MIN_EDITOR_FONT_SIZE, current - 1),
-              )
-            }}
-            onIncreaseFont={() => {
-              setEditorFontSize((current) =>
-                Math.min(MAX_EDITOR_FONT_SIZE, current + 1),
-              )
-            }}
-            onCommand={executeCommand}
+            saveError={editorError}
           />
 
           <section className="editor-content">
@@ -266,26 +257,30 @@ function App() {
             {!isLoading && isAuthenticated && !selectedNote && (
               <p className="editor-empty">Create a note to start writing.</p>
             )}
-
-            {!isLoading && isAuthenticated && selectedNote && (
-              <NoteEditor
-                note={selectedNote}
-                draftTitle={draftTitle}
-                draftContent={draftContent}
-                isDirty={isDirty}
-                saveError={saveError}
-                editorRef={editorRef}
-                editorFontSize={editorFontSize}
-                onTitleChange={(title) => {
-                  setDraftTitle(title)
-                  markDirty()
-                }}
-                onContentInput={(content) => {
-                  setDraftContent(content)
-                  markDirty()
-                }}
-              />
+            {documentError && (
+              <p className="editor-empty save-error" role="alert">
+                {documentError}
+              </p>
             )}
+
+            {!isLoading &&
+              isAuthenticated &&
+              selectedNote &&
+              draftMatchesSelection &&
+              draft &&
+              !documentError && (
+                <NoteEditor
+                  key={selectedNote._id}
+                  note={selectedNote}
+                  draftTitle={draft.title}
+                  draftDocument={draft.document}
+                  isDirty={isDirty}
+                  saveError={editorError}
+                  onTitleChange={updateTitle}
+                  onDocumentChange={updateDocument}
+                  onEditorReady={setActiveEditor}
+                />
+              )}
           </section>
         </main>
       </SignedIn>
