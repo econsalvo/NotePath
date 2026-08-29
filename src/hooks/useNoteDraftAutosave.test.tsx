@@ -225,4 +225,70 @@ describe('note draft autosave', () => {
     expect(result.current.status).toBe('failed')
     expect(result.current.draft?.noteId).toBe('note-a')
   })
+
+  it('keeps the unsaved draft and failed state when a sign-out flush cannot persist', async () => {
+    const save = vi.fn().mockRejectedValue(new Error('Signed out before save'))
+    const { result } = renderHook(() =>
+      useNoteDraftAutosave({ save, delayMs: 900 }),
+    )
+
+    act(() => {
+      result.current.loadDraft({
+        noteId: 'note-a',
+        title: 'A note',
+        document: createEmptyDocument(),
+      })
+      result.current.updateDocument(documentWithText('Do not lose this'))
+    })
+
+    let didDiscard = true
+    await act(async () => {
+      didDiscard = await result.current.flushAndDiscardDraft()
+    })
+
+    expect(didDiscard).toBe(false)
+    expect(save).toHaveBeenCalledOnce()
+    expect(result.current.status).toBe('failed')
+    expect(result.current.error).toBe('Signed out before save')
+    expect(result.current.isDirty).toBe(true)
+    expect(result.current.draft).toMatchObject({
+      noteId: 'note-a',
+      document: documentWithText('Do not lose this'),
+    })
+  })
+
+  it('discards a sign-out draft only after its pending changes persist', async () => {
+    const pendingSave = deferred()
+    const save = vi.fn(() => pendingSave.promise)
+    const { result } = renderHook(() =>
+      useNoteDraftAutosave({ save, delayMs: 900 }),
+    )
+
+    act(() => {
+      result.current.loadDraft({
+        noteId: 'note-a',
+        title: 'A note',
+        document: createEmptyDocument(),
+      })
+      result.current.updateTitle('Save before sign-out')
+    })
+
+    let flushPromise!: Promise<boolean>
+    act(() => {
+      flushPromise = result.current.flushAndDiscardDraft()
+    })
+    expect(result.current.draft?.noteId).toBe('note-a')
+    expect(result.current.status).toBe('saving')
+
+    let didDiscard = false
+    await act(async () => {
+      pendingSave.resolve()
+      didDiscard = await flushPromise
+    })
+
+    expect(didDiscard).toBe(true)
+    expect(result.current.draft).toBeNull()
+    expect(result.current.status).toBe('saved')
+    expect(result.current.isDirty).toBe(false)
+  })
 })

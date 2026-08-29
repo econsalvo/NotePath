@@ -207,6 +207,23 @@ export function useNoteDraftAutosave<TNoteId extends string = string>({
     }
   }, [isRevisionDirty, persistRevision])
 
+  const flushAndDiscardDraft = useCallback(async () => {
+    const generation = draftRef.current?.generation
+    if (generation === undefined) return true
+
+    const didSave = await flushDraft()
+    if (!didSave) return false
+
+    const current = draftRef.current
+    if (
+      current?.generation === generation &&
+      !isRevisionDirty(current)
+    ) {
+      discardDraft()
+    }
+    return true
+  }, [discardDraft, flushDraft, isRevisionDirty])
+
   const isDirty = Boolean(draftState) && status !== 'saved'
 
   useEffect(() => {
@@ -238,5 +255,6 @@ export function useNoteDraftAutosave<TNoteId extends string = string>({
     updateTitle,
     updateDocument,
     flushDraft,
+    flushAndDiscardDraft,
   }
 }

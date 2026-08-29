@@ -134,6 +134,104 @@ describe('persisted note documents', () => {
     })
   })
 
+  it('preserves legacy hard line breaks inside paragraphs and list items', () => {
+    expect(
+      decodeStoredDocument(
+        '<p>First line<br>Second line</p><ul><li>First item line<br>Second item line</li></ul>',
+      ),
+    ).toEqual({
+      needsMigration: true,
+      document: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'First line' },
+              { type: 'hardBreak' },
+              { type: 'text', text: 'Second line' },
+            ],
+          },
+          {
+            type: 'bulletList',
+            content: [
+              {
+                type: 'listItem',
+                content: [
+                  {
+                    type: 'paragraph',
+                    content: [
+                      { type: 'text', text: 'First item line' },
+                      { type: 'hardBreak' },
+                      { type: 'text', text: 'Second item line' },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+  })
+
+  it('migrates headings and unsupported legacy blocks to safe paragraphs without losing text', () => {
+    const stored = [
+      '<h1>Roadmap</h1>',
+      '<section><h2>First phase</h2>',
+      '<blockquote>Keep <u>every</u> word</blockquote></section>',
+      '<article><header>Opening</header><footer>Closing</footer></article>',
+      '<ul><li><h3>List heading</h3><p>List detail</p></li></ul>',
+    ].join('')
+
+    expect(decodeStoredDocument(stored)).toEqual({
+      needsMigration: true,
+      document: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Roadmap' }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'First phase' }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Keep every word' }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Opening' }],
+          },
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'Closing' }],
+          },
+          {
+            type: 'bulletList',
+            content: [
+              {
+                type: 'listItem',
+                content: [
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'List heading' }],
+                  },
+                  {
+                    type: 'paragraph',
+                    content: [{ type: 'text', text: 'List detail' }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+  })
+
   it('projects rich-text documents to safe sidebar text', () => {
     const migrated = decodeStoredDocument(
       '<p><strong>Opening</strong> paragraph</p><ul><li>Bullet item</li></ul>',
@@ -156,5 +254,22 @@ describe('persisted note documents', () => {
     const stored = '{not valid JSON}'
 
     expect(documentToPlainText(decodeStoredDocument(stored).document)).toBe(stored)
+  })
+
+  it('preserves valid JSON text that is not a complete canonical envelope', () => {
+    const stored = '{"document":"draft"}'
+
+    expect(decodeStoredDocument(stored)).toEqual({
+      needsMigration: true,
+      document: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: stored }],
+          },
+        ],
+      },
+    })
   })
 })

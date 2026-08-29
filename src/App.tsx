@@ -1,12 +1,9 @@
 import { SignedIn, SignedOut } from '@clerk/clerk-react'
-import type { Editor } from '@tiptap/react'
 import { useConvexAuth, useMutation, useQuery } from 'convex/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../convex/_generated/api'
 import type { Id } from '../convex/_generated/dataModel'
 import { AuthScreen } from './components/AuthScreen'
-import { EditorToolbar } from './components/EditorToolbar'
-import { NoteEditor } from './components/NoteEditor'
 import { NotesSidebar } from './components/NotesSidebar'
 import {
   createEmptyDocument,
@@ -18,6 +15,12 @@ import { useNoteDraftAutosave } from './hooks/useNoteDraftAutosave'
 import type { Note } from './types/note'
 import { normalizeTitle } from './utils/noteFormatting'
 import './App.css'
+
+const TipTapEditorIsland = lazy(() =>
+  import('./components/TipTapEditorIsland').then((module) => ({
+    default: module.TipTapEditorIsland,
+  })),
+)
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback
@@ -31,7 +34,6 @@ function App() {
   const removeNote = useMutation(api.notes.remove)
 
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'notes'> | null>(null)
-  const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
   const [documentError, setDocumentError] = useState<string | null>(null)
 
@@ -65,6 +67,7 @@ function App() {
     updateTitle,
     updateDocument,
     flushDraft,
+    flushAndDiscardDraft,
   } = autosave
 
   const orderedNotes = useMemo(() => {
@@ -79,23 +82,27 @@ function App() {
 
   useEffect(() => {
     if (isAuthenticated) return
-    // Convex auth is an external source; clear account-scoped draft state when it changes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSelectedNoteId(null)
-    setActiveEditor(null)
-    setOperationError(null)
-    setDocumentError(null)
-    discardDraft()
-  }, [discardDraft, isAuthenticated])
+
+    let cancelled = false
+    void flushAndDiscardDraft().then((didDiscard) => {
+      if (cancelled || !didDiscard) return
+      setSelectedNoteId(null)
+      setOperationError(null)
+      setDocumentError(null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [flushAndDiscardDraft, isAuthenticated])
 
   useEffect(() => {
-    if (!orderedNotes) return
+    if (!isAuthenticated || !orderedNotes) return
 
     if (orderedNotes.length === 0) {
       // The remote collection is authoritative for which note can be selected.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedNoteId(null)
-      setActiveEditor(null)
       setDocumentError(null)
       discardDraft()
       return
@@ -113,14 +120,19 @@ function App() {
     if (!selectedStillExists && !selectedIsPendingCreate) {
       setSelectedNoteId(orderedNotes[0]._id)
     }
-  }, [discardDraft, draft?.noteId, orderedNotes, selectedNoteId])
+  }, [discardDraft, draft?.noteId, isAuthenticated, orderedNotes, selectedNoteId])
 
   useEffect(() => {
-    if (!selectedNote || draft?.noteId === selectedNote._id) return
+    if (
+      !isAuthenticated ||
+      !selectedNote ||
+      draft?.noteId === selectedNote._id
+    ) {
+      return
+    }
 
     // Load the selected remote note into the isolated local editor draft.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActiveEditor(null)
     setOperationError(null)
     try {
       const decoded = decodeStoredDocument(selectedNote.content)
@@ -141,7 +153,7 @@ function App() {
           : errorMessage(error, 'Could not open this note.'),
       )
     }
-  }, [discardDraft, draft?.noteId, loadDraft, selectedNote])
+  }, [discardDraft, draft?.noteId, isAuthenticated, loadDraft, selectedNote])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -175,7 +187,6 @@ function App() {
         title: 'Untitled Note',
         content: encodeStoredDocument(document),
       })
-      setActiveEditor(null)
       setSelectedNoteId(newId)
       loadDraft({
         noteId: newId,
@@ -193,7 +204,6 @@ function App() {
       const didSave = await flushDraft()
       if (!didSave) return
 
-      setActiveEditor(null)
       setOperationError(null)
       setDocumentError(null)
       setSelectedNoteId(note._id)
@@ -209,7 +219,6 @@ function App() {
       try {
         await removeNote({ id: note._id })
         if (isSelectedNote) {
-          setActiveEditor(null)
           setSelectedNoteId(null)
           setDocumentError(null)
           discardDraft()
@@ -223,7 +232,13 @@ function App() {
 
   const draftMatchesSelection =
     Boolean(selectedNote) && draft?.noteId === selectedNote?._id
-  const editorError = autosaveError ?? operationError
+  const canRenderEditor =
+    !isLoading &&
+    isAuthenticated &&
+    selectedNote &&
+    draftMatchesSelection &&
+    draft &&
+    !documentError
 
   return (
     <div className="app-shell">
@@ -241,47 +256,52 @@ function App() {
         />
 
         <main className="editor-pane">
-          <EditorToolbar
-            editor={activeEditor}
-            canEdit={draftMatchesSelection && !documentError}
-            isDirty={isDirty}
-            isSaving={isSaving}
-            saveError={editorError}
-          />
-
-          <section className="editor-content">
-            {isLoading && <p className="editor-empty">Checking authentication...</p>}
-            {!isLoading && !isAuthenticated && (
-              <p className="editor-empty">You need to sign in before using notes.</p>
-            )}
-            {!isLoading && isAuthenticated && !selectedNote && (
-              <p className="editor-empty">Create a note to start writing.</p>
-            )}
-            {documentError && (
-              <p className="editor-empty save-error" role="alert">
-                {documentError}
-              </p>
-            )}
-
-            {!isLoading &&
-              isAuthenticated &&
-              selectedNote &&
-              draftMatchesSelection &&
-              draft &&
-              !documentError && (
-                <NoteEditor
-                  key={selectedNote._id}
-                  note={selectedNote}
-                  draftTitle={draft.title}
-                  draftDocument={draft.document}
-                  isDirty={isDirty}
-                  saveError={editorError}
-                  onTitleChange={updateTitle}
-                  onDocumentChange={updateDocument}
-                  onEditorReady={setActiveEditor}
-                />
+          {canRenderEditor ? (
+            <Suspense
+              fallback={
+                <section className="editor-content">
+                  <p className="editor-empty">Loading editor...</p>
+                </section>
+              }
+            >
+              <TipTapEditorIsland
+                key={selectedNote._id}
+                note={selectedNote}
+                draftTitle={draft.title}
+                draftDocument={draft.document}
+                isDirty={isDirty}
+                isSaving={isSaving}
+                autosaveError={autosaveError}
+                operationError={operationError}
+                onTitleChange={updateTitle}
+                onDocumentChange={updateDocument}
+              />
+            </Suspense>
+          ) : (
+            <section className="editor-content">
+              {isLoading && (
+                <p className="editor-empty">Checking authentication...</p>
               )}
-          </section>
+              {!isLoading && !isAuthenticated && (
+                <p className="editor-empty">
+                  You need to sign in before using notes.
+                </p>
+              )}
+              {!isLoading && isAuthenticated && !selectedNote && (
+                <p className="editor-empty">Create a note to start writing.</p>
+              )}
+              {documentError && (
+                <p className="editor-empty save-error" role="alert">
+                  {documentError}
+                </p>
+              )}
+              {operationError && (
+                <p className="save-error" role="alert">
+                  {operationError}
+                </p>
+              )}
+            </section>
+          )}
         </main>
       </SignedIn>
     </div>

@@ -10,7 +10,54 @@ const LEGACY_EMPTY_HTML_PATTERN =
 const LEGACY_PLACEHOLDER_PATTERN =
   /^\s*<p>\s*Start writing\.\.\.\s*<\/p>\s*$/i
 const LEGACY_HTML_PATTERN =
-  /<\s*\/?\s*(?:p|div|br|b|strong|i|em|span|ul|ol|li|script|style|iframe|object|embed|img|video|audio)\b/i
+  /<\s*\/?\s*[a-z][a-z0-9:-]*(?:\s[^<>]*?)?\/?\s*>/i
+const LEGACY_INLINE_TAGS = new Set([
+  'A',
+  'ABBR',
+  'B',
+  'BDI',
+  'BDO',
+  'CITE',
+  'CODE',
+  'DEL',
+  'EM',
+  'FONT',
+  'I',
+  'INS',
+  'KBD',
+  'LABEL',
+  'MARK',
+  'Q',
+  'S',
+  'SAMP',
+  'SMALL',
+  'SPAN',
+  'STRONG',
+  'SUB',
+  'SUP',
+  'TIME',
+  'U',
+  'VAR',
+  'WBR',
+])
+const LEGACY_PARAGRAPH_BLOCK_TAGS = new Set([
+  'ADDRESS',
+  'DD',
+  'DT',
+  'FIGCAPTION',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'LEGEND',
+  'P',
+  'PRE',
+  'SUMMARY',
+  'TD',
+  'TH',
+])
 const UNSAFE_LEGACY_TAGS = new Set([
   'SCRIPT',
   'STYLE',
@@ -35,9 +82,15 @@ export type RichTextTextNode = {
   marks?: RichTextMark[]
 }
 
+export type RichTextHardBreakNode = {
+  type: 'hardBreak'
+}
+
+export type RichTextInlineNode = RichTextTextNode | RichTextHardBreakNode
+
 export type RichTextParagraphNode = {
   type: 'paragraph'
-  content?: RichTextTextNode[]
+  content?: RichTextInlineNode[]
 }
 
 export type RichTextListItemNode = {
@@ -96,13 +149,13 @@ function marksEqual(left: RichTextMark[] | undefined, right: RichTextMark[]) {
 }
 
 function appendText(
-  output: RichTextTextNode[],
+  output: RichTextInlineNode[],
   text: string,
   marks: RichTextMark[],
 ) {
   if (!text) return
   const previous = output[output.length - 1]
-  if (previous && marksEqual(previous.marks, marks)) {
+  if (previous?.type === 'text' && marksEqual(previous.marks, marks)) {
     previous.text += text
     return
   }
@@ -155,7 +208,7 @@ function getLegacyElementMarks(element: HTMLElement, inherited: RichTextMark[]) 
 function readLegacyInline(
   node: Node,
   marks: RichTextMark[],
-  output: RichTextTextNode[],
+  output: RichTextInlineNode[],
 ) {
   if (node.nodeType === Node.TEXT_NODE) {
     appendText(output, node.textContent ?? '', marks)
@@ -166,16 +219,22 @@ function readLegacyInline(
     return
   }
 
-  if (node.tagName === 'BR') return
+  if (node.tagName === 'BR') {
+    output.push({ type: 'hardBreak' })
+    return
+  }
 
   const nextMarks = getLegacyElementMarks(node, marks)
   node.childNodes.forEach((child) => readLegacyInline(child, nextMarks, output))
 }
 
 function paragraphFromLegacyNodes(nodes: Node[]) {
-  const content: RichTextTextNode[] = []
+  const content: RichTextInlineNode[] = []
   nodes.forEach((node) => readLegacyInline(node, [], content))
-  const hasText = content.some((node) => node.text.replace(/\u00a0/g, ' ').trim())
+  const hasText = content.some(
+    (node) =>
+      node.type === 'text' && node.text.replace(/\u00a0/g, ' ').trim(),
+  )
   return hasText
     ? ({ type: 'paragraph', content } satisfies RichTextParagraphNode)
     : ({ type: 'paragraph' } satisfies RichTextParagraphNode)
@@ -186,24 +245,14 @@ function listFromLegacyElement(element: HTMLElement): RichTextListNode | null {
   const content = Array.from(element.children)
     .filter((child) => child.tagName === 'LI')
     .map((child) => {
-      const itemChildren = Array.from(child.childNodes)
-      const inlineNodes = itemChildren.filter(
-        (node) =>
-          !(node instanceof HTMLElement) ||
-          (node.tagName !== 'UL' && node.tagName !== 'OL'),
-      )
-      const nestedLists = itemChildren
-        .filter(
-          (node): node is HTMLElement =>
-            node instanceof HTMLElement &&
-            (node.tagName === 'UL' || node.tagName === 'OL'),
-        )
-        .map(listFromLegacyElement)
-        .filter((node): node is RichTextListNode => node !== null)
+      const itemContent = blocksFromLegacyContainer(child, true)
 
       return {
         type: 'listItem' as const,
-        content: [paragraphFromLegacyNodes(inlineNodes), ...nestedLists],
+        content:
+          itemContent.length > 0
+            ? itemContent
+            : [paragraphFromLegacyNodes(Array.from(child.childNodes))],
       }
     })
 
@@ -221,7 +270,10 @@ function listFromLegacyElement(element: HTMLElement): RichTextListNode | null {
   return { type, content }
 }
 
-function blocksFromLegacyContainer(container: ParentNode) {
+function blocksFromLegacyContainer(
+  container: ParentNode,
+  preserveTopLevelBreaks = false,
+) {
   const blocks: Array<RichTextParagraphNode | RichTextListNode> = []
   const pendingInline: Node[] = []
 
@@ -250,13 +302,22 @@ function blocksFromLegacyContainer(container: ParentNode) {
       return
     }
 
-    if (child.tagName === 'P') {
+    if (child.tagName === 'BR') {
+      if (preserveTopLevelBreaks) {
+        pendingInline.push(child)
+        return
+      }
+      flushInline()
+      return
+    }
+
+    if (LEGACY_PARAGRAPH_BLOCK_TAGS.has(child.tagName)) {
       flushInline()
       blocks.push(paragraphFromLegacyNodes(Array.from(child.childNodes)))
       return
     }
 
-    if (child.tagName === 'DIV') {
+    if (!LEGACY_INLINE_TAGS.has(child.tagName)) {
       flushInline()
       const nestedBlocks = blocksFromLegacyContainer(child)
       blocks.push(
@@ -264,11 +325,6 @@ function blocksFromLegacyContainer(container: ParentNode) {
           ? nestedBlocks
           : [paragraphFromLegacyNodes(Array.from(child.childNodes))]),
       )
-      return
-    }
-
-    if (child.tagName === 'BR') {
-      flushInline()
       return
     }
 
@@ -314,6 +370,16 @@ function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: string[]) {
   return Object.keys(value).every((key) => allowedKeys.includes(key))
 }
 
+function hasCanonicalEnvelopeShape(value: Record<string, unknown>) {
+  const hasOwn = (key: string) =>
+    Object.prototype.hasOwnProperty.call(value, key)
+  return (
+    hasOwn('schemaVersion') &&
+    hasOwn('format') &&
+    hasOwn('document')
+  )
+}
+
 function isValidMark(value: unknown): value is RichTextMark {
   if (!isRecord(value) || typeof value.type !== 'string') return false
 
@@ -342,13 +408,22 @@ function isValidTextNode(value: unknown) {
   return Array.isArray(value.marks) && value.marks.every(isValidMark)
 }
 
+function isValidHardBreakNode(value: unknown) {
+  return isRecord(value) && value.type === 'hardBreak' && hasOnlyKeys(value, ['type'])
+}
+
 function isValidParagraphNode(value: unknown, nodeCounter: { count: number }) {
   if (!isRecord(value) || value.type !== 'paragraph') return false
   if (!hasOnlyKeys(value, ['type', 'content'])) return false
   nodeCounter.count += 1
   if (nodeCounter.count > MAX_DOCUMENT_NODES) return false
   if (value.content === undefined) return true
-  return Array.isArray(value.content) && value.content.every(isValidTextNode)
+  return (
+    Array.isArray(value.content) &&
+    value.content.every(
+      (node) => isValidTextNode(node) || isValidHardBreakNode(node),
+    )
+  )
 }
 
 function isValidListNode(
@@ -410,7 +485,9 @@ export function assertRichTextDocument(
 
 function nodeText(node: RichTextParagraphNode | RichTextListNode): string {
   if (node.type === 'paragraph') {
-    return node.content?.map((child) => child.text).join('') ?? ''
+    return node.content
+      ?.map((child) => (child.type === 'text' ? child.text : '\n'))
+      .join('') ?? ''
   }
 
   return node.content
@@ -488,9 +565,7 @@ export function decodeStoredDocument(stored: string): DecodedNoteDocument {
     return migrateLegacyDocument(stored)
   }
 
-  const resemblesPersistedDocument =
-    'schemaVersion' in parsed || 'format' in parsed || 'document' in parsed
-  if (!resemblesPersistedDocument) {
+  if (!hasCanonicalEnvelopeShape(parsed)) {
     return migrateLegacyDocument(stored)
   }
   return {
