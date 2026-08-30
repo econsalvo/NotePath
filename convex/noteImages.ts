@@ -22,6 +22,7 @@ async function requireOwnedNote(
 
 export const generateUploadUrl = mutation({
   args: { noteId: v.id('notes') },
+  returns: v.string(),
   handler: async (ctx, { noteId }) => {
     await requireOwnedNote(ctx, noteId)
     return await ctx.storage.generateUploadUrl()
@@ -33,6 +34,10 @@ export const finalizeUpload = mutation({
     noteId: v.id('notes'),
     storageId: v.id('_storage'),
   },
+  returns: v.object({
+    storageId: v.id('_storage'),
+    url: v.string(),
+  }),
   handler: async (ctx, { noteId, storageId }) => {
     const { userId } = await requireOwnedNote(ctx, noteId)
     const existing = await ctx.db
@@ -70,8 +75,37 @@ export const finalizeUpload = mutation({
   },
 })
 
+export const discardUpload = mutation({
+  args: {
+    noteId: v.id('notes'),
+    storageId: v.id('_storage'),
+  },
+  returns: v.null(),
+  handler: async (ctx, { noteId, storageId }) => {
+    const { userId } = await requireOwnedNote(ctx, noteId)
+    const image = await ctx.db
+      .query('noteImages')
+      .withIndex('by_storage', (q) => q.eq('storageId', storageId))
+      .unique()
+    if (!image) return null
+    if (image.noteId !== noteId || image.userId !== userId) {
+      throw new Error('Image not found')
+    }
+
+    await ctx.storage.delete(storageId)
+    await ctx.db.delete(image._id)
+    return null
+  },
+})
+
 export const listUrls = query({
   args: { noteId: v.id('notes') },
+  returns: v.array(
+    v.object({
+      storageId: v.id('_storage'),
+      url: v.string(),
+    }),
+  ),
   handler: async (ctx, { noteId }) => {
     await requireOwnedNote(ctx, noteId)
     const images = await ctx.db

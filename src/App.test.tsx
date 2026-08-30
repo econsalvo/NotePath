@@ -19,6 +19,7 @@ const appState = vi.hoisted(() => ({
     remove: vi.fn(),
     generateUploadUrl: vi.fn(),
     finalizeUpload: vi.fn(),
+    discardUpload: vi.fn(),
   },
 }))
 
@@ -44,6 +45,7 @@ vi.mock('../convex/_generated/api', () => ({
       listUrls: 'listUrls',
       generateUploadUrl: 'generateUploadUrl',
       finalizeUpload: 'finalizeUpload',
+      discardUpload: 'discardUpload',
     },
   },
 }))
@@ -93,6 +95,7 @@ beforeEach(() => {
     storageId: 'storage-id',
     url: 'image-url',
   })
+  appState.mutations.discardUpload.mockReset().mockResolvedValue(null)
 })
 
 afterEach(() => {

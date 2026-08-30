@@ -61,8 +61,6 @@ export const update = mutation({
       throw new Error('Note not found')
     }
 
-    const previousDocument = decodeCanonicalStoredDocument(note.content)
-    const previousImageIds = new Set(imageStorageIds(previousDocument))
     const nextImageIds = new Set(imageStorageIds(nextDocument))
     const trackedImages = await ctx.db
       .query('noteImages')
@@ -85,10 +83,8 @@ export const update = mutation({
       updatedAt: Date.now(),
     })
 
-    for (const storageId of previousImageIds) {
-      if (nextImageIds.has(storageId)) continue
-      const image = trackedByStorageId.get(storageId)
-      if (!image) continue
+    for (const image of trackedImages) {
+      if (nextImageIds.has(image.storageId)) continue
       await ctx.storage.delete(image.storageId)
       await ctx.db.delete(image._id)
     }

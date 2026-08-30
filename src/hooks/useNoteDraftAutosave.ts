@@ -32,6 +32,7 @@ type SavedRevision<TNoteId extends string> = {
 type UseNoteDraftAutosaveOptions<TNoteId extends string> = {
   save: (draft: PersistedNoteDraft<TNoteId>) => Promise<void>
   delayMs?: number
+  isPaused?: boolean
 }
 
 type LoadDraftOptions = {
@@ -47,6 +48,7 @@ function toErrorMessage(error: unknown) {
 export function useNoteDraftAutosave<TNoteId extends string = string>({
   save,
   delayMs = DEFAULT_AUTOSAVE_DELAY_MS,
+  isPaused = false,
 }: UseNoteDraftAutosaveOptions<TNoteId>) {
   const [draftState, setDraftState] = useState<VersionedDraft<TNoteId> | null>(
     null,
@@ -227,13 +229,13 @@ export function useNoteDraftAutosave<TNoteId extends string = string>({
   const isDirty = Boolean(draftState) && status !== 'saved'
 
   useEffect(() => {
-    if (!draftState || !isDirty || status !== 'dirty') return
+    if (isPaused || !draftState || !isDirty || status !== 'dirty') return
 
     const timerId = window.setTimeout(() => {
       void flushDraft()
     }, delayMs)
     return () => window.clearTimeout(timerId)
-  }, [delayMs, draftState, flushDraft, isDirty, status])
+  }, [delayMs, draftState, flushDraft, isDirty, isPaused, status])
 
   const draft = useMemo<NoteDraft<TNoteId> | null>(() => {
     if (!draftState) return null

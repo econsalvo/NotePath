@@ -4,6 +4,7 @@ import {
   type Editor,
   type JSONContent,
 } from '@tiptap/react'
+import type { Transaction } from '@tiptap/pm/state'
 import { useEffect, useRef, useState } from 'react'
 import {
   assertRichTextDocument,
@@ -18,6 +19,7 @@ type RichTextEditorProps = {
   document: RichTextDocument
   imageUrls?: Record<string, string>
   onUploadImage?: (file: File) => Promise<UploadedNoteImage>
+  onDiscardImage?: (storageId: string) => Promise<void>
   onChange: (document: RichTextDocument) => void
   onEditorReady?: (editor: Editor | null) => void
 }
@@ -69,6 +71,7 @@ export function RichTextEditor({
   document,
   imageUrls = {},
   onUploadImage,
+  onDiscardImage,
   onChange,
   onEditorReady,
 }: RichTextEditorProps) {
@@ -76,12 +79,14 @@ export function RichTextEditor({
   const imageUrlsRef = useRef(imageUrls)
   const editorRef = useRef<Editor | null>(null)
   const onUploadImageRef = useRef(onUploadImage)
+  const onDiscardImageRef = useRef(onDiscardImage)
   const [imageStatus, setImageStatus] = useState<
     { kind: 'uploading'; count: number } | { kind: 'error'; message: string } | null
   >(null)
 
   imageUrlsRef.current = imageUrls
   onUploadImageRef.current = onUploadImage
+  onDiscardImageRef.current = onDiscardImage
 
   const editor = useEditor({
     extensions: noteEditorExtensions,
@@ -100,37 +105,54 @@ export function RichTextEditor({
         if (files.length === 0) return false
 
         event.preventDefault()
-        const insertAt = view.state.selection.from
+        const pasteEditor = editorRef.current
+        let position = view.state.selection.from
         void (async () => {
           const uploadImage = onUploadImageRef.current
-          if (!uploadImage) {
+          if (!uploadImage || !pasteEditor) {
             setImageStatus({ kind: 'error', message: 'Image upload is unavailable.' })
             return
           }
 
+          const mapPastePosition = ({ transaction }: { transaction: Transaction }) => {
+            position = transaction.mapping.map(position, 1)
+          }
+          pasteEditor.on('transaction', mapPastePosition)
           setImageStatus({ kind: 'uploading', count: files.length })
-          let position = insertAt
+          let finalizedImage: UploadedNoteImage | null = null
           try {
             for (const file of files) {
               validateNoteImage(file)
-              const uploaded = await uploadImage(file)
+              finalizedImage = await uploadImage(file)
               const currentEditor = editorRef.current
-              if (!currentEditor || currentEditor.isDestroyed) return
-              currentEditor.commands.insertContentAt(position, {
-                type: 'image',
-                attrs: {
-                  storageId: uploaded.storageId,
-                  src: uploaded.url,
-                },
-              })
-              position += 1
+              if (
+                currentEditor !== pasteEditor ||
+                currentEditor.isDestroyed ||
+                !currentEditor.commands.insertContentAt(position, {
+                  type: 'image',
+                  attrs: {
+                    storageId: finalizedImage.storageId,
+                    src: finalizedImage.url,
+                  },
+                })
+              ) {
+                throw new Error('Could not insert uploaded image.')
+              }
+              finalizedImage = null
             }
             setImageStatus(null)
           } catch (error) {
+            if (finalizedImage) {
+              await onDiscardImageRef.current?.(finalizedImage.storageId).catch(
+                () => undefined,
+              )
+            }
             setImageStatus({
               kind: 'error',
               message: error instanceof Error ? error.message : 'Could not upload image.',
             })
+          } finally {
+            pasteEditor.off('transaction', mapPastePosition)
           }
         })()
         return true

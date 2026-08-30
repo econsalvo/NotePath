@@ -16,6 +16,7 @@ type TipTapEditorIslandProps = {
   operationError: string | null
   imageUrls: Record<string, string>
   onUploadImage: (file: File) => Promise<UploadedNoteImage>
+  onDiscardImage: (storageId: string) => Promise<void>
   onTitleChange: (title: string) => void
   onDocumentChange: (document: RichTextDocument) => void
 }
@@ -30,6 +31,7 @@ export function TipTapEditorIsland({
   operationError,
   imageUrls,
   onUploadImage,
+  onDiscardImage,
   onTitleChange,
   onDocumentChange,
 }: TipTapEditorIslandProps) {
@@ -54,6 +56,7 @@ export function TipTapEditorIsland({
           saveError={autosaveError}
           imageUrls={imageUrls}
           onUploadImage={onUploadImage}
+          onDiscardImage={onDiscardImage}
           onTitleChange={onTitleChange}
           onDocumentChange={onDocumentChange}
           onEditorReady={setEditor}

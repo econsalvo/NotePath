@@ -77,17 +77,24 @@ function expectSupportedFormatting(container: HTMLElement) {
 
 describe('RichTextEditor', () => {
   it('pastes an uploaded image while persisting only its storage ID', async () => {
+    let editorInstance: Editor | null = null
     const onChange = vi.fn()
-    const onUploadImage = vi.fn().mockResolvedValue({
-      storageId: 'storage_123',
-      url: 'https://example.test/rendered-image.png',
-    })
+    let finishUpload!: (image: { storageId: string; url: string }) => void
+    const onUploadImage = vi.fn(
+      () =>
+        new Promise<{ storageId: string; url: string }>((resolve) => {
+          finishUpload = resolve
+        }),
+    )
     render(
       <RichTextEditor
         document={{ type: 'doc', content: [{ type: 'paragraph' }] }}
         imageUrls={{}}
         onUploadImage={onUploadImage}
         onChange={onChange}
+        onEditorReady={(editor) => {
+          editorInstance = editor
+        }}
       />,
     )
 
@@ -98,8 +105,25 @@ describe('RichTextEditor', () => {
     })
 
     await waitFor(() => expect(onUploadImage).toHaveBeenCalledWith(file))
-    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    act(() => {
+      editorInstance!.commands.insertContentAt(1, 'Typed while uploading')
+    })
+    await act(async () => {
+      finishUpload({
+        storageId: 'storage_123',
+        url: 'https://example.test/rendered-image.png',
+      })
+    })
+    await waitFor(() =>
+      expect(JSON.stringify(onChange.mock.calls.at(-1)?.[0])).toContain(
+        'storage_123',
+      ),
+    )
     const persisted = onChange.mock.calls.at(-1)?.[0]
+    expect(persisted.content[0]).toMatchObject({
+      type: 'paragraph',
+      content: [{ type: 'text', text: 'Typed while uploading' }],
+    })
     expect(JSON.stringify(persisted)).toContain('storage_123')
     expect(JSON.stringify(persisted)).not.toContain('example.test')
     expect(screen.queryByText(/Uploading/)).not.toBeInTheDocument()

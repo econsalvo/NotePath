@@ -13,6 +13,7 @@ type NoteEditorProps = {
   saveError: string | null
   imageUrls: Record<string, string>
   onUploadImage: (file: File) => Promise<UploadedNoteImage>
+  onDiscardImage: (storageId: string) => Promise<void>
   onTitleChange: (title: string) => void
   onDocumentChange: (document: RichTextDocument) => void
   onEditorReady: (editor: Editor | null) => void
@@ -26,6 +27,7 @@ export function NoteEditor({
   saveError,
   imageUrls,
   onUploadImage,
+  onDiscardImage,
   onTitleChange,
   onDocumentChange,
   onEditorReady,
@@ -56,6 +58,7 @@ export function NoteEditor({
         document={draftDocument}
         imageUrls={imageUrls}
         onUploadImage={onUploadImage}
+        onDiscardImage={onDiscardImage}
         onChange={onDocumentChange}
         onEditorReady={onEditorReady}
       />
