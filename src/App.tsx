@@ -32,10 +32,26 @@ function App() {
   const createNote = useMutation(api.notes.create)
   const updateNote = useMutation(api.notes.update)
   const removeNote = useMutation(api.notes.remove)
+  const generateImageUploadUrl = useMutation(api.noteImages.generateUploadUrl)
+  const finalizeImageUpload = useMutation(api.noteImages.finalizeUpload)
+  const discardImageUpload = useMutation(api.noteImages.discardUpload)
 
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'notes'> | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
   const [documentError, setDocumentError] = useState<string | null>(null)
+  const [imageUploadsInFlight, setImageUploadsInFlight] = useState(0)
+  const storedImageUrls = useQuery(
+    api.noteImages.listUrls,
+    isAuthenticated && selectedNoteId ? { noteId: selectedNoteId } : 'skip',
+  )
+
+  const imageUrls = useMemo(
+    () =>
+      Object.fromEntries(
+        (storedImageUrls ?? []).map(({ storageId, url }) => [storageId, url]),
+      ),
+    [storedImageUrls],
+  )
 
   const persistDraft = useCallback(
     async ({
@@ -56,7 +72,10 @@ function App() {
     [updateNote],
   )
 
-  const autosave = useNoteDraftAutosave<Id<'notes'>>({ save: persistDraft })
+  const autosave = useNoteDraftAutosave<Id<'notes'>>({
+    save: persistDraft,
+    isPaused: imageUploadsInFlight > 0,
+  })
   const {
     draft,
     error: autosaveError,
@@ -69,6 +88,53 @@ function App() {
     flushDraft,
     flushAndDiscardDraft,
   } = autosave
+
+  const uploadImage = useCallback(
+    async (noteId: Id<'notes'>, file: File) => {
+      setImageUploadsInFlight((count) => count + 1)
+      try {
+        if (!(await flushDraft())) {
+          throw new Error('Save the note before adding an image.')
+        }
+
+        const uploadUrl = await generateImageUploadUrl({ noteId })
+        const response = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        })
+        if (!response.ok) throw new Error('Could not upload image.')
+
+        const uploaded: unknown = await response.json()
+        if (
+          typeof uploaded !== 'object' ||
+          uploaded === null ||
+          !('storageId' in uploaded) ||
+          typeof uploaded.storageId !== 'string'
+        ) {
+          throw new Error('Image upload returned an invalid response.')
+        }
+
+        return await finalizeImageUpload({
+          noteId,
+          storageId: uploaded.storageId as Id<'_storage'>,
+        })
+      } finally {
+        setImageUploadsInFlight((count) => Math.max(0, count - 1))
+      }
+    },
+    [finalizeImageUpload, flushDraft, generateImageUploadUrl],
+  )
+
+  const discardImage = useCallback(
+    async (noteId: Id<'notes'>, storageId: string) => {
+      await discardImageUpload({
+        noteId,
+        storageId: storageId as Id<'_storage'>,
+      })
+    },
+    [discardImageUpload],
+  )
 
   const orderedNotes = useMemo(() => {
     if (!notes) return notes
@@ -273,6 +339,11 @@ function App() {
                 isSaving={isSaving}
                 autosaveError={autosaveError}
                 operationError={operationError}
+                imageUrls={imageUrls}
+                onUploadImage={(file) => uploadImage(selectedNote._id, file)}
+                onDiscardImage={(storageId) =>
+                  discardImage(selectedNote._id, storageId)
+                }
                 onTitleChange={updateTitle}
                 onDocumentChange={updateDocument}
               />

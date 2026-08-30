@@ -1,12 +1,21 @@
 import type { Editor } from '@tiptap/react'
-import { act, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   decodeStoredDocument,
   encodeStoredDocument,
   type RichTextDocument,
 } from '../domain/noteDocument'
 import { RichTextEditor } from './RichTextEditor'
+
+afterEach(cleanup)
 
 const fullyFormattedDocument: RichTextDocument = {
   type: 'doc',
@@ -67,6 +76,63 @@ function expectSupportedFormatting(container: HTMLElement) {
 }
 
 describe('RichTextEditor', () => {
+  it('pastes an uploaded image while persisting only its storage ID', async () => {
+    let editorInstance: Editor | null = null
+    const onChange = vi.fn()
+    let finishUpload!: (image: { storageId: string; url: string }) => void
+    const onUploadImage = vi.fn(
+      () =>
+        new Promise<{ storageId: string; url: string }>((resolve) => {
+          finishUpload = resolve
+        }),
+    )
+    render(
+      <RichTextEditor
+        document={{ type: 'doc', content: [{ type: 'paragraph' }] }}
+        imageUrls={{}}
+        onUploadImage={onUploadImage}
+        onChange={onChange}
+        onEditorReady={(editor) => {
+          editorInstance = editor
+        }}
+      />,
+    )
+
+    const editor = await screen.findByRole('textbox', { name: 'Note body' })
+    const file = new File(['png'], 'pasted.png', { type: 'image/png' })
+    fireEvent.paste(editor, {
+      clipboardData: { files: [file], getData: () => '', types: ['Files'] },
+    })
+
+    await waitFor(() => expect(onUploadImage).toHaveBeenCalledWith(file))
+    act(() => {
+      editorInstance!.commands.insertContentAt(1, 'Typed while uploading')
+    })
+    await act(async () => {
+      finishUpload({
+        storageId: 'storage_123',
+        url: 'https://example.test/rendered-image.png',
+      })
+    })
+    await waitFor(() =>
+      expect(JSON.stringify(onChange.mock.calls.at(-1)?.[0])).toContain(
+        'storage_123',
+      ),
+    )
+    const persisted = onChange.mock.calls.at(-1)?.[0]
+    expect(persisted.content[0]).toMatchObject({
+      type: 'paragraph',
+      content: [{ type: 'text', text: 'Typed while uploading' }],
+    })
+    expect(JSON.stringify(persisted)).toContain('storage_123')
+    expect(JSON.stringify(persisted)).not.toContain('example.test')
+    expect(screen.queryByText(/Uploading/)).not.toBeInTheDocument()
+    expect(document.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://example.test/rendered-image.png',
+    )
+  })
+
   it('round-trips every supported formatting type through persisted JSON', async () => {
     let editor: Editor | null = null
     const onChange = vi.fn()
