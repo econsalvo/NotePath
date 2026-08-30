@@ -6,7 +6,6 @@ export const noteEditorExtensions = [
     blockquote: false,
     code: false,
     codeBlock: false,
-    hardBreak: false,
     heading: false,
     horizontalRule: false,
     link: false,

@@ -71,6 +71,26 @@ describe('persisted note documents', () => {
     })
   })
 
+  it('decodes entities from legacy innerHTML that contains no elements', () => {
+    expect(decodeStoredDocument('A &amp;amp; B')).toEqual({
+      needsMigration: true,
+      document: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'text', text: 'A &amp; B' }],
+          },
+        ],
+      },
+    })
+    expect(
+      documentToPlainText(
+        decodeStoredDocument('&lt;script&gt;plain text&lt;/script&gt;').document,
+      ),
+    ).toBe('<script>plain text</script>')
+  })
+
   it('migrates supported legacy HTML and strips unsafe markup', () => {
     const stored = [
       '<p onclick="steal()"><strong>Bold</strong> <em>Italic</em> ',
@@ -125,6 +145,34 @@ describe('persisted note documents', () => {
                     type: 'paragraph',
                     content: [{ type: 'text', text: 'Numbered' }],
                   },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+  })
+
+  it('preserves supported marks applied by a legacy block wrapper', () => {
+    expect(
+      decodeStoredDocument(
+        '<p style="font-size: 28px; font-weight: bold">Wrapped text</p>',
+      ),
+    ).toEqual({
+      needsMigration: true,
+      document: {
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              {
+                type: 'text',
+                text: 'Wrapped text',
+                marks: [
+                  { type: 'bold' },
+                  { type: 'textStyle', attrs: { fontSize: '28px' } },
                 ],
               },
             ],

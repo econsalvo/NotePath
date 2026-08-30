@@ -11,6 +11,8 @@ const LEGACY_PLACEHOLDER_PATTERN =
   /^\s*<p>\s*Start writing\.\.\.\s*<\/p>\s*$/i
 const LEGACY_HTML_PATTERN =
   /<\s*\/?\s*[a-z][a-z0-9:-]*(?:\s[^<>]*?)?\/?\s*>/i
+const LEGACY_HTML_ENTITY_PATTERN =
+  /&(?:#\d+|#x[\da-f]+|[a-z][a-z0-9]+);/i
 const LEGACY_INLINE_TAGS = new Set([
   'A',
   'ABBR',
@@ -228,9 +230,12 @@ function readLegacyInline(
   node.childNodes.forEach((child) => readLegacyInline(child, nextMarks, output))
 }
 
-function paragraphFromLegacyNodes(nodes: Node[]) {
+function paragraphFromLegacyNodes(
+  nodes: Node[],
+  inheritedMarks: RichTextMark[] = [],
+) {
   const content: RichTextInlineNode[] = []
-  nodes.forEach((node) => readLegacyInline(node, [], content))
+  nodes.forEach((node) => readLegacyInline(node, inheritedMarks, content))
   const hasText = content.some(
     (node) =>
       node.type === 'text' && node.text.replace(/\u00a0/g, ' ').trim(),
@@ -240,19 +245,31 @@ function paragraphFromLegacyNodes(nodes: Node[]) {
     : ({ type: 'paragraph' } satisfies RichTextParagraphNode)
 }
 
-function listFromLegacyElement(element: HTMLElement): RichTextListNode | null {
+function listFromLegacyElement(
+  element: HTMLElement,
+  inheritedMarks: RichTextMark[],
+): RichTextListNode | null {
   const type = element.tagName === 'OL' ? 'orderedList' : 'bulletList'
+  const listMarks = getLegacyElementMarks(element, inheritedMarks)
   const content = Array.from(element.children)
-    .filter((child) => child.tagName === 'LI')
+    .filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && child.tagName === 'LI',
+    )
     .map((child) => {
-      const itemContent = blocksFromLegacyContainer(child, true)
+      const itemContent = blocksFromLegacyContainer(child, true, listMarks)
 
       return {
         type: 'listItem' as const,
         content:
           itemContent.length > 0
             ? itemContent
-            : [paragraphFromLegacyNodes(Array.from(child.childNodes))],
+            : [
+                paragraphFromLegacyNodes(
+                  Array.from(child.childNodes),
+                  getLegacyElementMarks(child, listMarks),
+                ),
+              ],
       }
     })
 
@@ -273,16 +290,21 @@ function listFromLegacyElement(element: HTMLElement): RichTextListNode | null {
 function blocksFromLegacyContainer(
   container: ParentNode,
   preserveTopLevelBreaks = false,
+  inheritedMarks: RichTextMark[] = [],
 ) {
   const blocks: Array<RichTextParagraphNode | RichTextListNode> = []
   const pendingInline: Node[] = []
+  const containerMarks =
+    container instanceof HTMLElement
+      ? getLegacyElementMarks(container, inheritedMarks)
+      : inheritedMarks
 
   const flushInline = () => {
     const hasMeaningfulText = pendingInline.some((node) =>
       (node.textContent ?? '').replace(/\u00a0/g, ' ').trim(),
     )
     if (hasMeaningfulText) {
-      blocks.push(paragraphFromLegacyNodes(pendingInline))
+      blocks.push(paragraphFromLegacyNodes(pendingInline, containerMarks))
     }
     pendingInline.length = 0
   }
@@ -297,7 +319,7 @@ function blocksFromLegacyContainer(
 
     if (child.tagName === 'UL' || child.tagName === 'OL') {
       flushInline()
-      const list = listFromLegacyElement(child)
+      const list = listFromLegacyElement(child, containerMarks)
       if (list) blocks.push(list)
       return
     }
@@ -313,17 +335,31 @@ function blocksFromLegacyContainer(
 
     if (LEGACY_PARAGRAPH_BLOCK_TAGS.has(child.tagName)) {
       flushInline()
-      blocks.push(paragraphFromLegacyNodes(Array.from(child.childNodes)))
+      blocks.push(
+        paragraphFromLegacyNodes(
+          Array.from(child.childNodes),
+          getLegacyElementMarks(child, containerMarks),
+        ),
+      )
       return
     }
 
     if (!LEGACY_INLINE_TAGS.has(child.tagName)) {
       flushInline()
-      const nestedBlocks = blocksFromLegacyContainer(child)
+      const nestedBlocks = blocksFromLegacyContainer(
+        child,
+        false,
+        containerMarks,
+      )
       blocks.push(
         ...(nestedBlocks.length > 0
           ? nestedBlocks
-          : [paragraphFromLegacyNodes(Array.from(child.childNodes))]),
+          : [
+              paragraphFromLegacyNodes(
+                Array.from(child.childNodes),
+                getLegacyElementMarks(child, containerMarks),
+              ),
+            ]),
       )
       return
     }
@@ -356,7 +392,8 @@ function migrateLegacyDocument(stored: string): DecodedNoteDocument {
     return { document: createEmptyDocument(), needsMigration: true }
   }
 
-  const document = LEGACY_HTML_PATTERN.test(stored)
+  const document =
+    LEGACY_HTML_PATTERN.test(stored) || LEGACY_HTML_ENTITY_PATTERN.test(stored)
     ? legacyHtmlToDocument(stored)
     : plainTextToDocument(stored)
   return { document, needsMigration: true }

@@ -98,6 +98,28 @@ describe('RichTextEditor', () => {
     expectSupportedFormatting(secondRender.container)
   })
 
+  it('round-trips migrated hard breaks through the mounted editor schema', async () => {
+    let editor: Editor | null = null
+    const migrated = decodeStoredDocument(
+      '<p>First line<br>Second line</p>',
+    ).document
+    const view = render(
+      <RichTextEditor
+        document={migrated}
+        onChange={vi.fn()}
+        onEditorReady={(nextEditor) => {
+          editor = nextEditor
+        }}
+      />,
+    )
+
+    await waitFor(() => expect(editor).not.toBeNull())
+    expect(view.container.querySelector('br')).toBeInTheDocument()
+
+    const stored = encodeStoredDocument(editor!.getJSON() as RichTextDocument)
+    expect(decodeStoredDocument(stored).document).toEqual(migrated)
+  })
+
   it('does not carry stored formatting or history into another note', async () => {
     let editor: Editor | null = null
     const onChange = vi.fn()
