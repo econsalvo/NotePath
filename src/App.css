@@ -386,11 +386,49 @@
 
 .editor-input img {
   display: block;
-  width: auto;
   max-width: 100%;
   height: auto;
-  margin: 12px 0 18px;
   border-radius: 8px;
+}
+
+.resizable-note-image {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  margin: 12px 0 18px;
+  line-height: 0;
+}
+
+.resizable-note-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.image-resize-handle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid #171717;
+  border-radius: 50%;
+  background: #a78bfa;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.resizable-note-image:hover .image-resize-handle,
+.resizable-note-image:focus-within .image-resize-handle {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .image-resize-handle {
+    opacity: 1;
+  }
 }
 
 .image-upload-status {

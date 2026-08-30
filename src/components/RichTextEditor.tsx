@@ -27,9 +27,13 @@ type RichTextEditorProps = {
 function persistedDocument(node: JSONContent): RichTextDocument {
   const stripTransientImageAttrs = (current: JSONContent): JSONContent => {
     if (current.type === 'image') {
+      const width = current.attrs?.width
       return {
         type: 'image',
-        attrs: { storageId: current.attrs?.storageId },
+        attrs: {
+          storageId: current.attrs?.storageId,
+          ...(typeof width === 'number' ? { width } : {}),
+        },
       }
     }
     return {
@@ -51,10 +55,12 @@ function renderableDocument(
 ): JSONContent {
   if (node.type === 'image') {
     const storageId = node.attrs?.storageId
+    const width = node.attrs?.width
     return {
       type: 'image',
       attrs: {
         storageId,
+        ...(typeof width === 'number' ? { width } : {}),
         src: typeof storageId === 'string' ? imageUrls[storageId] ?? null : null,
       },
     }

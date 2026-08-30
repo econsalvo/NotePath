@@ -97,7 +97,7 @@ export type RichTextParagraphNode = {
 
 export type RichTextImageNode = {
   type: 'image'
-  attrs: { storageId: string }
+  attrs: { storageId: string; width?: number }
 }
 
 export type RichTextListItemNode = {
@@ -458,9 +458,14 @@ function isValidImageNode(value: unknown): value is RichTextImageNode {
   if (!isRecord(value) || value.type !== 'image') return false
   if (!hasOnlyKeys(value, ['type', 'attrs']) || !isRecord(value.attrs)) return false
   return (
-    hasOnlyKeys(value.attrs, ['storageId']) &&
+    hasOnlyKeys(value.attrs, ['storageId', 'width']) &&
     typeof value.attrs.storageId === 'string' &&
-    /^[A-Za-z0-9_-]{1,256}$/.test(value.attrs.storageId)
+    /^[A-Za-z0-9_-]{1,256}$/.test(value.attrs.storageId) &&
+    (value.attrs.width === undefined ||
+      (typeof value.attrs.width === 'number' &&
+        Number.isInteger(value.attrs.width) &&
+        value.attrs.width >= 20 &&
+        value.attrs.width <= 100))
   )
 }
 
