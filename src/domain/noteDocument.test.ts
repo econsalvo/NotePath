@@ -44,7 +44,7 @@ describe('persisted note documents', () => {
     const document: RichTextDocument = {
       type: 'doc',
       content: [
-        { type: 'image', attrs: { storageId: 'storage_123' } },
+        { type: 'image', attrs: { storageId: 'storage_123', width: 65 } },
         { type: 'paragraph' },
       ],
     }

@@ -164,6 +164,53 @@ describe('RichTextEditor', () => {
     expectSupportedFormatting(secondRender.container)
   })
 
+  it('persists and restores a resized image width', async () => {
+    const onChange = vi.fn()
+    const view = render(
+      <RichTextEditor
+        document={{
+          type: 'doc',
+          content: [
+            { type: 'image', attrs: { storageId: 'storage_123', width: 60 } },
+            { type: 'paragraph' },
+          ],
+        }}
+        imageUrls={{ storage_123: 'https://example.test/image.png' }}
+        onChange={onChange}
+      />,
+    )
+
+    const editor = await screen.findByRole('textbox', { name: 'Note body' })
+    const image = view.container.querySelector('img')
+    const wrapper = image?.closest('.resizable-note-image') as HTMLElement
+    const handle = screen.getByRole('button', { name: 'Resize image' })
+    expect(wrapper).toHaveStyle({ width: '60%' })
+    expect(handle).toBeVisible()
+
+    vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue({
+      width: 1000,
+    } as DOMRect)
+    vi.spyOn(wrapper, 'getBoundingClientRect').mockReturnValue({
+      width: 600,
+    } as DOMRect)
+    fireEvent.pointerDown(handle, { clientX: 600 })
+    fireEvent.pointerMove(document, { clientX: 800 })
+    fireEvent.pointerUp(document)
+
+    await waitFor(() =>
+      expect(onChange.mock.calls.at(-1)?.[0].content[0]).toEqual({
+        type: 'image',
+        attrs: { storageId: 'storage_123', width: 80 },
+      }),
+    )
+    const stored = encodeStoredDocument(onChange.mock.calls.at(-1)?.[0])
+    expect(decodeStoredDocument(stored).document.content[0]).toEqual({
+      type: 'image',
+      attrs: { storageId: 'storage_123', width: 80 },
+    })
+    view.unmount()
+  })
+
   it('round-trips migrated hard breaks through the mounted editor schema', async () => {
     let editor: Editor | null = null
     const migrated = decodeStoredDocument(
