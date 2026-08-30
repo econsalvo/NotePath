@@ -192,7 +192,7 @@ export function RichTextEditor({
   }, [editor, onEditorReady])
 
   useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed) return
     const current = persistedDocument(editor.getJSON())
     const next = renderableDocument(current, imageUrls)
     const currentImageSources = JSON.stringify(editor.getJSON())

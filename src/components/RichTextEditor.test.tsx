@@ -211,6 +211,40 @@ describe('RichTextEditor', () => {
     view.unmount()
   })
 
+  it('ignores image URL updates after the editor has been destroyed', async () => {
+    let editor: Editor | null = null
+    const documentWithImage: RichTextDocument = {
+      type: 'doc',
+      content: [
+        { type: 'image', attrs: { storageId: 'storage_123' } },
+        { type: 'paragraph' },
+      ],
+    }
+    const view = render(
+      <RichTextEditor
+        document={documentWithImage}
+        imageUrls={{}}
+        onChange={vi.fn()}
+        onEditorReady={(nextEditor) => {
+          editor = nextEditor
+        }}
+      />,
+    )
+    await waitFor(() => expect(editor).not.toBeNull())
+
+    act(() => editor!.destroy())
+
+    expect(() =>
+      view.rerender(
+        <RichTextEditor
+          document={documentWithImage}
+          imageUrls={{ storage_123: 'https://example.test/image.png' }}
+          onChange={vi.fn()}
+        />,
+      ),
+    ).not.toThrow()
+  })
+
   it('round-trips migrated hard breaks through the mounted editor schema', async () => {
     let editor: Editor | null = null
     const migrated = decodeStoredDocument(
