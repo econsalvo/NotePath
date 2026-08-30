@@ -1,5 +1,6 @@
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server'
 import { v } from 'convex/values'
+import { decodeCanonicalStoredDocument } from '../src/domain/noteDocument'
 
 async function requireUserId(ctx: QueryCtx | MutationCtx) {
   const identity = await ctx.auth.getUserIdentity()
@@ -28,6 +29,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    decodeCanonicalStoredDocument(args.content)
     const now = Date.now()
     return await ctx.db.insert('notes', {
       userId,
@@ -47,6 +49,7 @@ export const update = mutation({
   },
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx)
+    decodeCanonicalStoredDocument(args.content)
     const note = await ctx.db.get(args.id)
     if (!note || note.userId !== userId) {
       throw new Error('Note not found')

@@ -1,28 +1,30 @@
+import { useEditorState, type Editor } from '@tiptap/react'
 import type { ReactNode } from 'react'
 
+const MIN_EDITOR_FONT_SIZE = 16
+const MAX_EDITOR_FONT_SIZE = 34
+const DEFAULT_EDITOR_FONT_SIZE = 22
+
 type EditorToolbarProps = {
+  editor: Editor | null
   canEdit: boolean
   isDirty: boolean
   isSaving: boolean
   saveError: string | null
-  fontSize: number
-  canDecreaseFont: boolean
-  canIncreaseFont: boolean
-  onDecreaseFont: () => void
-  onIncreaseFont: () => void
-  onCommand: (command: string) => void
 }
 
 type ToolbarAction = {
-  command: string
+  name: 'bold' | 'italic' | 'bulletList' | 'orderedList' | 'clearFormatting'
   label: string
+  shortcut?: string
   icon: ReactNode
 }
 
 const actions: ToolbarAction[] = [
   {
-    command: 'bold',
+    name: 'bold',
     label: 'Bold',
+    shortcut: 'Control+B Meta+B',
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M14 12.8c1.8-.6 3-2.1 3-4 0-2.7-2.1-4.8-5.2-4.8H6v16h6.4c3 0 5.2-2.2 5.2-4.9 0-2.2-1.5-3.8-3.6-4.3ZM9 6.7h2.7c1.4 0 2.3.8 2.3 2s-.9 2-2.3 2H9V6.7Zm3.1 10.6H9v-4h3.1c1.5 0 2.5.8 2.5 2s-1 2-2.5 2Z" />
@@ -30,8 +32,9 @@ const actions: ToolbarAction[] = [
     ),
   },
   {
-    command: 'italic',
+    name: 'italic',
     label: 'Italic',
+    shortcut: 'Control+I Meta+I',
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M10 4v2h2.7l-3.4 12H6v2h8v-2h-2.6l3.4-12H18V4h-8Z" />
@@ -39,7 +42,7 @@ const actions: ToolbarAction[] = [
     ),
   },
   {
-    command: 'insertUnorderedList',
+    name: 'bulletList',
     label: 'Bulleted List',
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -48,7 +51,7 @@ const actions: ToolbarAction[] = [
     ),
   },
   {
-    command: 'insertOrderedList',
+    name: 'orderedList',
     label: 'Numbered List',
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -57,7 +60,7 @@ const actions: ToolbarAction[] = [
     ),
   },
   {
-    command: 'removeFormat',
+    name: 'clearFormatting',
     label: 'Clear Formatting',
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -74,54 +77,117 @@ function saveStatusText(isDirty: boolean, isSaving: boolean, saveError: string |
   return 'Auto-saved'
 }
 
+function runToolbarAction(editor: Editor, action: ToolbarAction['name']) {
+  switch (action) {
+    case 'bold':
+      editor.chain().focus().toggleBold().run()
+      break
+    case 'italic':
+      editor.chain().focus().toggleItalic().run()
+      break
+    case 'bulletList':
+      editor.chain().focus().toggleBulletList().run()
+      break
+    case 'orderedList':
+      editor.chain().focus().toggleOrderedList().run()
+      break
+    case 'clearFormatting':
+      editor.chain().focus().unsetAllMarks().clearNodes().run()
+      break
+  }
+}
+
 export function EditorToolbar({
+  editor,
   canEdit,
   isDirty,
   isSaving,
   saveError,
-  fontSize,
-  canDecreaseFont,
-  canIncreaseFont,
-  onDecreaseFont,
-  onIncreaseFont,
-  onCommand,
 }: EditorToolbarProps) {
+  const editorState = useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => {
+      const rawFontSize = currentEditor?.getAttributes('textStyle').fontSize
+      const parsedFontSize = Number.parseInt(String(rawFontSize ?? ''), 10)
+      return {
+        bold: currentEditor?.isActive('bold') ?? false,
+        italic: currentEditor?.isActive('italic') ?? false,
+        bulletList: currentEditor?.isActive('bulletList') ?? false,
+        orderedList: currentEditor?.isActive('orderedList') ?? false,
+        fontSize: Number.isInteger(parsedFontSize)
+          ? parsedFontSize
+          : DEFAULT_EDITOR_FONT_SIZE,
+      }
+    },
+  })
+
+  const fontSize = editorState?.fontSize ?? DEFAULT_EDITOR_FONT_SIZE
+  const editorEnabled = canEdit && Boolean(editor)
+
   return (
     <header className="toolbar">
       <div className="toolbar-left">
-        <div className="toolbar-group">
-          {actions.map((action) => (
-            <button
-              key={action.command}
-              type="button"
-              className="toolbar-btn icon-only"
-              title={action.label}
-              aria-label={action.label}
-              onClick={() => onCommand(action.command)}
-              disabled={!canEdit}
-            >
-              {action.icon}
-            </button>
-          ))}
+        <div className="toolbar-group" role="toolbar" aria-label="Text formatting">
+          {actions.map((action) => {
+            const isToggle = action.name !== 'clearFormatting'
+            const isActive =
+              action.name === 'clearFormatting'
+                ? false
+                : Boolean(editorState?.[action.name])
+            return (
+              <button
+                key={action.name}
+                type="button"
+                className={`toolbar-btn icon-only${isActive ? ' active' : ''}`}
+                title={action.label}
+                aria-label={action.label}
+                aria-keyshortcuts={action.shortcut}
+                aria-pressed={isToggle ? isActive : undefined}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  if (editor) runToolbarAction(editor, action.name)
+                }}
+                disabled={!editorEnabled}
+              >
+                {action.icon}
+              </button>
+            )
+          })}
         </div>
 
-        <div className="font-size-controls" aria-label="Text size controls">
+        <div className="font-size-controls" role="group" aria-label="Text size">
           <button
             type="button"
             className="toolbar-btn font-size-btn"
-            onClick={onDecreaseFont}
-            disabled={!canEdit || !canDecreaseFont}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() =>
+              editor
+                ?.chain()
+                .focus()
+                .setFontSize(`${Math.max(MIN_EDITOR_FONT_SIZE, fontSize - 1)}px`)
+                .run()
+            }
+            disabled={!editorEnabled || fontSize <= MIN_EDITOR_FONT_SIZE}
             aria-label="Decrease text size"
             title="Decrease text size"
           >
             A-
           </button>
-          <span className="font-size-value">{fontSize}px</span>
+          <output className="font-size-value" aria-live="polite">
+            {fontSize}px
+          </output>
           <button
             type="button"
             className="toolbar-btn font-size-btn"
-            onClick={onIncreaseFont}
-            disabled={!canEdit || !canIncreaseFont}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() =>
+              editor
+                ?.chain()
+                .focus()
+                .setFontSize(`${Math.min(MAX_EDITOR_FONT_SIZE, fontSize + 1)}px`)
+                .run()
+            }
+            disabled={!editorEnabled || fontSize >= MAX_EDITOR_FONT_SIZE}
             aria-label="Increase text size"
             title="Increase text size"
           >
@@ -130,7 +196,12 @@ export function EditorToolbar({
         </div>
       </div>
 
-      <p className={`autosave-status${saveError ? ' error' : ''}`}>
+      <p
+        className={`autosave-status${saveError ? ' error' : ''}`}
+        role={saveError ? 'alert' : 'status'}
+        aria-live={saveError ? 'assertive' : 'polite'}
+        aria-atomic="true"
+      >
         {saveStatusText(isDirty, isSaving, saveError)}
       </p>
     </header>
