@@ -40,6 +40,21 @@ describe('persisted note documents', () => {
     })
   })
 
+  it('round-trips durable image storage IDs without render URLs', () => {
+    const document: RichTextDocument = {
+      type: 'doc',
+      content: [
+        { type: 'image', attrs: { storageId: 'storage_123' } },
+        { type: 'paragraph' },
+      ],
+    }
+
+    const stored = encodeStoredDocument(document)
+
+    expect(decodeStoredDocument(stored).document).toEqual(document)
+    expect(stored).not.toContain('http')
+  })
+
   it.each([
     ['', { type: 'doc', content: [{ type: 'paragraph' }] }],
     ['   ', { type: 'doc', content: [{ type: 'paragraph' }] }],

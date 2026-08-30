@@ -384,6 +384,30 @@
   margin: 0 0 18px;
 }
 
+.editor-input img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0 18px;
+  border-radius: 8px;
+}
+
+.image-upload-status {
+  display: inline-block;
+  margin: 8px 0 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(90, 90, 90, 0.22);
+  color: #a8a8a8;
+  font-size: 0.8rem;
+}
+
+.image-upload-status.error {
+  background: rgba(88, 20, 32, 0.34);
+  color: #ff9c9c;
+}
+
 .editor-input ul,
 .editor-input ol {
   margin: 0 0 18px 26px;

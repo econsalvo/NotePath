@@ -3,6 +3,7 @@ import type { Note } from '../types/note'
 import type { RichTextDocument } from '../domain/noteDocument'
 import { formatCreatedDate, formatRelativeTime } from '../utils/noteFormatting'
 import { RichTextEditor } from './RichTextEditor'
+import type { UploadedNoteImage } from './RichTextEditor'
 
 type NoteEditorProps = {
   note: Note
@@ -10,6 +11,8 @@ type NoteEditorProps = {
   draftDocument: RichTextDocument
   isDirty: boolean
   saveError: string | null
+  imageUrls: Record<string, string>
+  onUploadImage: (file: File) => Promise<UploadedNoteImage>
   onTitleChange: (title: string) => void
   onDocumentChange: (document: RichTextDocument) => void
   onEditorReady: (editor: Editor | null) => void
@@ -21,6 +24,8 @@ export function NoteEditor({
   draftDocument,
   isDirty,
   saveError,
+  imageUrls,
+  onUploadImage,
   onTitleChange,
   onDocumentChange,
   onEditorReady,
@@ -49,6 +54,8 @@ export function NoteEditor({
 
       <RichTextEditor
         document={draftDocument}
+        imageUrls={imageUrls}
+        onUploadImage={onUploadImage}
         onChange={onDocumentChange}
         onEditorReady={onEditorReady}
       />

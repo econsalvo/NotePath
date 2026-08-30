@@ -95,9 +95,14 @@ export type RichTextParagraphNode = {
   content?: RichTextInlineNode[]
 }
 
+export type RichTextImageNode = {
+  type: 'image'
+  attrs: { storageId: string }
+}
+
 export type RichTextListItemNode = {
   type: 'listItem'
-  content: Array<RichTextParagraphNode | RichTextListNode>
+  content: Array<RichTextParagraphNode | RichTextListNode | RichTextImageNode>
 }
 
 export type RichTextListNode = {
@@ -108,7 +113,7 @@ export type RichTextListNode = {
 
 export type RichTextDocument = {
   type: 'doc'
-  content: Array<RichTextParagraphNode | RichTextListNode>
+  content: Array<RichTextParagraphNode | RichTextListNode | RichTextImageNode>
 }
 
 export type PersistedNoteDocument = {
@@ -449,6 +454,16 @@ function isValidHardBreakNode(value: unknown) {
   return isRecord(value) && value.type === 'hardBreak' && hasOnlyKeys(value, ['type'])
 }
 
+function isValidImageNode(value: unknown): value is RichTextImageNode {
+  if (!isRecord(value) || value.type !== 'image') return false
+  if (!hasOnlyKeys(value, ['type', 'attrs']) || !isRecord(value.attrs)) return false
+  return (
+    hasOnlyKeys(value.attrs, ['storageId']) &&
+    typeof value.attrs.storageId === 'string' &&
+    /^[A-Za-z0-9_-]{1,256}$/.test(value.attrs.storageId)
+  )
+}
+
 function isValidParagraphNode(value: unknown, nodeCounter: { count: number }) {
   if (!isRecord(value) || value.type !== 'paragraph') return false
   if (!hasOnlyKeys(value, ['type', 'content'])) return false
@@ -494,7 +509,8 @@ function isValidListNode(
       if (!Array.isArray(item.content) || item.content.length === 0) return false
       return item.content.every((child) =>
         isValidParagraphNode(child, nodeCounter) ||
-        isValidListNode(child, depth + 1, nodeCounter),
+        isValidListNode(child, depth + 1, nodeCounter) ||
+        isValidImageNode(child),
       )
     })
   )
@@ -508,7 +524,8 @@ export function isRichTextDocument(value: unknown): value is RichTextDocument {
   const nodeCounter = { count: 1 }
   return value.content.every((node) =>
     isValidParagraphNode(node, nodeCounter) ||
-    isValidListNode(node, 1, nodeCounter),
+    isValidListNode(node, 1, nodeCounter) ||
+    isValidImageNode(node),
   )
 }
 
@@ -520,7 +537,10 @@ export function assertRichTextDocument(
   }
 }
 
-function nodeText(node: RichTextParagraphNode | RichTextListNode): string {
+function nodeText(
+  node: RichTextParagraphNode | RichTextListNode | RichTextImageNode,
+): string {
+  if (node.type === 'image') return ''
   if (node.type === 'paragraph') {
     return node.content
       ?.map((child) => (child.type === 'text' ? child.text : '\n'))
@@ -545,6 +565,26 @@ export function documentToPlainText(document: RichTextDocument) {
 
 export function hasMeaningfulDocument(document: RichTextDocument) {
   return documentToPlainText(document).length > 0
+}
+
+export function imageStorageIds(document: RichTextDocument) {
+  assertRichTextDocument(document)
+  const storageIds = new Set<string>()
+
+  const visit = (
+    node: RichTextParagraphNode | RichTextListNode | RichTextImageNode,
+  ) => {
+    if (node.type === 'image') {
+      storageIds.add(node.attrs.storageId)
+      return
+    }
+    if (node.type === 'bulletList' || node.type === 'orderedList') {
+      node.content.forEach((item) => item.content.forEach(visit))
+    }
+  }
+
+  document.content.forEach(visit)
+  return [...storageIds]
 }
 
 export function encodeStoredDocument(document: RichTextDocument) {

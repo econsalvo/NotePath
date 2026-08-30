@@ -17,6 +17,8 @@ const appState = vi.hoisted(() => ({
     create: vi.fn(),
     update: vi.fn(),
     remove: vi.fn(),
+    generateUploadUrl: vi.fn(),
+    finalizeUpload: vi.fn(),
   },
 }))
 
@@ -38,12 +40,18 @@ vi.mock('../convex/_generated/api', () => ({
       update: 'update',
       remove: 'remove',
     },
+    noteImages: {
+      listUrls: 'listUrls',
+      generateUploadUrl: 'generateUploadUrl',
+      finalizeUpload: 'finalizeUpload',
+    },
   },
 }))
 
 vi.mock('convex/react', () => ({
   useConvexAuth: () => appState.auth,
-  useQuery: () => appState.notes,
+  useQuery: (reference: string) =>
+    reference === 'listUrls' ? [] : appState.notes,
   useMutation: (reference: keyof typeof appState.mutations) =>
     appState.mutations[reference],
 }))
@@ -80,6 +88,11 @@ beforeEach(() => {
   appState.mutations.create.mockReset().mockResolvedValue('new-note')
   appState.mutations.update.mockReset().mockResolvedValue(undefined)
   appState.mutations.remove.mockReset().mockResolvedValue(undefined)
+  appState.mutations.generateUploadUrl.mockReset().mockResolvedValue('upload-url')
+  appState.mutations.finalizeUpload.mockReset().mockResolvedValue({
+    storageId: 'storage-id',
+    url: 'image-url',
+  })
 })
 
 afterEach(() => {

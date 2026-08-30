@@ -32,10 +32,52 @@ function App() {
   const createNote = useMutation(api.notes.create)
   const updateNote = useMutation(api.notes.update)
   const removeNote = useMutation(api.notes.remove)
+  const generateImageUploadUrl = useMutation(api.noteImages.generateUploadUrl)
+  const finalizeImageUpload = useMutation(api.noteImages.finalizeUpload)
 
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'notes'> | null>(null)
   const [operationError, setOperationError] = useState<string | null>(null)
   const [documentError, setDocumentError] = useState<string | null>(null)
+  const storedImageUrls = useQuery(
+    api.noteImages.listUrls,
+    isAuthenticated && selectedNoteId ? { noteId: selectedNoteId } : 'skip',
+  )
+
+  const imageUrls = useMemo(
+    () =>
+      Object.fromEntries(
+        (storedImageUrls ?? []).map(({ storageId, url }) => [storageId, url]),
+      ),
+    [storedImageUrls],
+  )
+
+  const uploadImage = useCallback(
+    async (noteId: Id<'notes'>, file: File) => {
+      const uploadUrl = await generateImageUploadUrl({ noteId })
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      })
+      if (!response.ok) throw new Error('Could not upload image.')
+
+      const uploaded: unknown = await response.json()
+      if (
+        typeof uploaded !== 'object' ||
+        uploaded === null ||
+        !('storageId' in uploaded) ||
+        typeof uploaded.storageId !== 'string'
+      ) {
+        throw new Error('Image upload returned an invalid response.')
+      }
+
+      return await finalizeImageUpload({
+        noteId,
+        storageId: uploaded.storageId as Id<'_storage'>,
+      })
+    },
+    [finalizeImageUpload, generateImageUploadUrl],
+  )
 
   const persistDraft = useCallback(
     async ({
@@ -273,6 +315,8 @@ function App() {
                 isSaving={isSaving}
                 autosaveError={autosaveError}
                 operationError={operationError}
+                imageUrls={imageUrls}
+                onUploadImage={(file) => uploadImage(selectedNote._id, file)}
                 onTitleChange={updateTitle}
                 onDocumentChange={updateDocument}
               />
